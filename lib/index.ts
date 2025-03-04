@@ -54,7 +54,17 @@ async function getBrowser(
   browserbaseSessionCreateParams?: Browserbase.Sessions.SessionCreateParams,
   browserbaseSessionID?: string,
   localBrowserLaunchOptions?: LocalBrowserLaunchOptions,
+  browserContext?: { context: BrowserContext; contextPath: string },
 ): Promise<BrowserResult> {
+  // If a custom context is provided, return it directly
+  if (browserContext) {
+    return {
+      context: browserContext.context,
+      contextPath: browserContext.contextPath,
+      env: "LOCAL",
+    };
+  }
+
   if (env === "BROWSERBASE") {
     if (!apiKey) {
       logger({
@@ -309,7 +319,7 @@ async function getBrowser(
   }
 }
 
-async function applyStealthScripts(context: BrowserContext) {
+export async function applyStealthScripts(context: BrowserContext) {
   await context.addInitScript(() => {
     // Override the navigator.webdriver property
     Object.defineProperty(navigator, "webdriver", {
@@ -340,8 +350,8 @@ async function applyStealthScripts(context: BrowserContext) {
     window.navigator.permissions.query = (parameters) =>
       parameters.name === "notifications"
         ? Promise.resolve({
-            state: Notification.permission,
-          } as PermissionStatus)
+          state: Notification.permission,
+        } as PermissionStatus)
         : originalQuery(parameters);
   });
 }
@@ -391,6 +401,11 @@ export class Stagehand {
     }
     return this.stagehandPage.page;
   }
+  private browserContext?: {
+    context: BrowserContext;
+    contextPath: string;
+    createNewPage: boolean;
+  };
 
   constructor(
     {
@@ -414,10 +429,11 @@ export class Stagehand {
       localBrowserLaunchOptions,
       selfHeal = true,
       waitForCaptchaSolves = false,
+      browserContext,
       actTimeoutMs = 60_000,
     }: ConstructorParams = {
-      env: "BROWSERBASE",
-    },
+        env: "BROWSERBASE",
+      },
   ) {
     this.externalLogger = logger || defaultLogger;
     this.enableCaching =
@@ -450,7 +466,7 @@ export class Stagehand {
     this.browserbaseSessionID = browserbaseSessionID;
     this.userProvidedInstructions = systemPrompt;
     this.usingAPI = useAPI ?? false;
-    this.modelName = modelName ?? DEFAULT_MODEL_NAME;
+    this.browserContext = browserContext;
     this.actTimeoutMs = actTimeoutMs;
 
     if (this.usingAPI && env === "LOCAL") {
@@ -520,8 +536,8 @@ export class Stagehand {
     if (isRunningInBun()) {
       throw new Error(
         "Playwright does not currently support the Bun runtime environment. " +
-          "Please use Node.js instead. For more information, see: " +
-          "https://github.com/microsoft/playwright/issues/27139",
+        "Please use Node.js instead. For more information, see: " +
+        "https://github.com/microsoft/playwright/issues/27139",
       );
     }
 
@@ -563,6 +579,7 @@ export class Stagehand {
         this.browserbaseSessionCreateParams,
         this.browserbaseSessionID,
         this.localBrowserLaunchOptions,
+        this.browserContext,
       ).catch((e) => {
         console.error("Error in init:", e);
         const br: BrowserResult = {
@@ -579,7 +596,19 @@ export class Stagehand {
 
     this.stagehandContext = await StagehandContext.init(context, this);
 
-    const defaultPage = (await this.stagehandContext.getStagehandPages())[0];
+    let defaultPage = (await this.stagehandContext.getStagehandPages())[0];
+    if (this.browserContext.createNewPage) {
+      const newPwPage = await this.context.newPage();
+      defaultPage = await new StagehandPage(
+        newPwPage,
+        this,
+        this.stagehandContext,
+        this.llmClient,
+        this.userProvidedInstructions,
+        this.apiClient,
+        this.waitForCaptchaSolves,
+      ).init();
+    }
     this.stagehandPage = defaultPage;
 
     if (this.headless) {
@@ -688,7 +717,7 @@ export class Stagehand {
               (log) => log.id !== logObj.id,
             );
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }
 
