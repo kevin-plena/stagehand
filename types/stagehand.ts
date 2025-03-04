@@ -42,6 +42,11 @@ export interface ConstructorParams {
    */
   waitForCaptchaSolves?: boolean;
   localBrowserLaunchOptions?: LocalBrowserLaunchOptions;
+  browserContext?: {
+    context: BrowserContext;
+    contextPath: string;
+    createNewPage: boolean;
+  };
   actTimeoutMs?: number;
   logInferenceToFile?: boolean;
 }
