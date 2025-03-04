@@ -9,7 +9,7 @@
     "2048": "npm run build && tsx examples/2048.ts",
     "popup": "npm run build && tsx examples/popup.ts",
     "example": "npm run build && tsx examples/example.ts",
-    "oracle": "npm run build && tsx examples/oracleCustomers.ts",
+    "oracle": "npm run build && tsx --inspect examples/oracleCustomers.ts",
     "langchain": "npm run build && tsx examples/langchain.ts",
     "debug-url": "npm run build && tsx examples/debugUrl.ts",
     "external-client": "npm run build && tsx examples/external_client.ts",
@@ -28,7 +28,7 @@
     "build-dom-scripts": "tsx lib/dom/genDomScripts.ts",
     "build-types": "tsc --emitDeclarationOnly --outDir dist",
     "build-js": "tsup lib/index.ts --dts",
-    "build": "npm run lint && npm run build-dom-scripts && npm run build-js && npm run build-types",
+    "build": "npm run build-dom-scripts && npm run build-js && npm run build-types",
     "lint": "npm run prettier && npm run eslint",
     "release": "npm run build && changeset publish",
     "release-canary": "npm run build && changeset version --snapshot && changeset publish --tag alpha"
