@@ -1,5 +1,5 @@
 import { Browserbase } from "@browserbasehq/sdk";
-import { chromium } from "@playwright/test";
+import { chromium, type Page as PlaywrightPage } from "@playwright/test";
 import { randomUUID } from "crypto";
 import dotenv from "dotenv";
 import fs from "fs";
@@ -349,8 +349,8 @@ export async function applyStealthScripts(context: BrowserContext) {
     window.navigator.permissions.query = (parameters) =>
       parameters.name === "notifications"
         ? Promise.resolve({
-            state: Notification.permission,
-          } as PermissionStatus)
+          state: Notification.permission,
+        } as PermissionStatus)
         : originalQuery(parameters);
   });
 }
@@ -391,7 +391,8 @@ export class Stagehand {
   private browserContext?: {
     context: BrowserContext;
     contextPath: string;
-    createNewPage: boolean;
+    createNewPage?: boolean;
+    page?: PlaywrightPage;
   };
 
   constructor(
@@ -418,8 +419,8 @@ export class Stagehand {
       waitForCaptchaSolves = false,
       browserContext,
     }: ConstructorParams = {
-      env: "BROWSERBASE",
-    },
+        env: "BROWSERBASE",
+      },
   ) {
     this.externalLogger = logger || defaultLogger;
     this.enableCaching =
@@ -532,8 +533,8 @@ export class Stagehand {
     if (isRunningInBun()) {
       throw new Error(
         "Playwright does not currently support the Bun runtime environment. " +
-          "Please use Node.js instead. For more information, see: " +
-          "https://github.com/microsoft/playwright/issues/27139",
+        "Please use Node.js instead. For more information, see: " +
+        "https://github.com/microsoft/playwright/issues/27139",
       );
     }
 
@@ -593,6 +594,8 @@ export class Stagehand {
     let defaultPage = this.context.pages()[0];
     if (this.browserContext.createNewPage) {
       defaultPage = await this.context.newPage();
+    } else if (this.browserContext.page) {
+      defaultPage = this.browserContext.page;
     }
     this.stagehandPage = await new StagehandPage(
       defaultPage,
