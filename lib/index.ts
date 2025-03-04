@@ -53,7 +53,17 @@ async function getBrowser(
   browserbaseSessionCreateParams?: Browserbase.Sessions.SessionCreateParams,
   browserbaseSessionID?: string,
   localBrowserLaunchOptions?: LocalBrowserLaunchOptions,
+  browserContext?: { context: BrowserContext; contextPath: string },
 ): Promise<BrowserResult> {
+  // If a custom context is provided, return it directly
+  if (browserContext) {
+    return {
+      context: browserContext.context,
+      contextPath: browserContext.contextPath,
+      env: "LOCAL",
+    };
+  }
+
   if (env === "BROWSERBASE") {
     if (!apiKey) {
       logger({
@@ -308,7 +318,7 @@ async function getBrowser(
   }
 }
 
-async function applyStealthScripts(context: BrowserContext) {
+export async function applyStealthScripts(context: BrowserContext) {
   await context.addInitScript(() => {
     // Override the navigator.webdriver property
     Object.defineProperty(navigator, "webdriver", {
@@ -378,6 +388,11 @@ export class Stagehand {
   private localBrowserLaunchOptions?: LocalBrowserLaunchOptions;
   public readonly selfHeal: boolean;
   private cleanupCalled = false;
+  private browserContext?: {
+    context: BrowserContext;
+    contextPath: string;
+    createNewPage: boolean;
+  };
 
   constructor(
     {
@@ -401,6 +416,7 @@ export class Stagehand {
       localBrowserLaunchOptions,
       selfHeal = true,
       waitForCaptchaSolves = false,
+      browserContext,
     }: ConstructorParams = {
       env: "BROWSERBASE",
     },
@@ -436,7 +452,7 @@ export class Stagehand {
     this.browserbaseSessionID = browserbaseSessionID;
     this.userProvidedInstructions = systemPrompt;
     this.usingAPI = useAPI ?? false;
-    this.modelName = modelName ?? DEFAULT_MODEL_NAME;
+    this.browserContext = browserContext;
 
     if (this.usingAPI && env === "LOCAL") {
       throw new Error("API mode can only be used with BROWSERBASE environment");
@@ -559,6 +575,7 @@ export class Stagehand {
         this.browserbaseSessionCreateParams,
         this.browserbaseSessionID,
         this.localBrowserLaunchOptions,
+        this.browserContext,
       ).catch((e) => {
         console.error("Error in init:", e);
         const br: BrowserResult = {
@@ -573,7 +590,10 @@ export class Stagehand {
     this.intEnv = env;
     this.contextPath = contextPath;
     this.stagehandContext = await StagehandContext.init(context, this);
-    const defaultPage = this.context.pages()[0];
+    let defaultPage = this.context.pages()[0];
+    if (this.browserContext.createNewPage) {
+      defaultPage = await this.context.newPage();
+    }
     this.stagehandPage = await new StagehandPage(
       defaultPage,
       this,
