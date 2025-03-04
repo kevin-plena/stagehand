@@ -23,20 +23,23 @@ export async function example() {
   const { context } = await initCdpBrowser();
   const contextPath = getContextPath(StagehandConfig.localBrowserLaunchOptions);
 
+  const page = await context.newPage();
+
   const stagehand = new Stagehand({
     ...StagehandConfig,
     browserContext: {
       context,
       contextPath,
-      createNewPage: true,
+      // createNewPage: true,
+      page,
     },
   });
   await stagehand.init();
 
-  const page = stagehand.page;
+  const shPage = stagehand.page;
 
   // https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp
-  await page.goto(
+  await shPage.goto(
     "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp",
     { waitUntil: "load" },
   );
@@ -48,7 +51,7 @@ export async function example() {
 
   let hasMoreResults = true;
   while (hasMoreResults && currentIter < MAX_INTERATIONS) {
-    const { customerCards } = await page.extract({
+    const { customerCards } = await shPage.extract({
       instruction:
         "Extract the information from the customer cards on the page, starting at the current scroll position, and ending at the bottom of the page.",
       schema: z.object({
@@ -60,9 +63,9 @@ export async function example() {
             heading: z
               .string()
               .describe("The heading summary on the customer card."),
-            logoUrl: z
-              .string()
-              .describe("The full url to the customer logo on the card."),
+            // logoUrl: z
+            //   .string()
+            //   .describe("The full url to the customer logo on the card."),
             industry: z.string().describe("The customer industry on the card."),
             location: z.string().describe("The customer location on the card."),
             button: z
@@ -87,7 +90,7 @@ export async function example() {
     console.log(`Extracted ${customerCards.length} customers.`);
 
     // await page.act('go down by one page to have new customer cards visible.');
-    await page.keyboard.press("PageDown");
+    await shPage.keyboard.press("PageDown");
 
     // const overlayResults = await page.observe(
     //   'Close the "chat now" overlay if visible.'
@@ -97,7 +100,7 @@ export async function example() {
     // await clearOverlays(page); // Remove the highlight before typing
     // await page.act(overlayResults[0]);
 
-    const { hasSeeMoreButton } = await page.extract({
+    const { hasSeeMoreButton } = await shPage.extract({
       instruction:
         'Check if the "See more" button at the bottom of the page is currently visible.',
       schema: z.object({
@@ -110,8 +113,8 @@ export async function example() {
     });
 
     if (hasSeeMoreButton) {
-      await page.act('Click "See more" if visible, to load more customers.');
-      await page.waitForTimeout(1000);
+      await shPage.act('Click "See more" if visible, to load more customers.');
+      await shPage.waitForTimeout(1000);
     } else {
       hasMoreResults = false;
       break;
@@ -122,6 +125,9 @@ export async function example() {
 
   console.log(JSON.stringify(allCustomerCards, null, "\t"));
   console.log(`Extracted ${allCustomerCards.length} customers total.`);
+
+  console.log('Navigating on original page...');
+  await page.goto("https://www.example.com/", { waitUntil: "load" });
 }
 
 const getContextPath = (

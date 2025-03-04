@@ -5,7 +5,7 @@ import { LLMProvider } from "../lib/llm/LLMProvider";
 import { LogLine } from "./log";
 import { AvailableModel, ClientOptions } from "./model";
 import { LLMClient } from "../lib/llm/LLMClient";
-import { Cookie } from "@playwright/test";
+import { Cookie, type Page as PlaywrightPage } from "@playwright/test";
 import { AgentProviderType } from "./agent";
 
 export interface ConstructorParams {
@@ -45,7 +45,8 @@ export interface ConstructorParams {
   browserContext?: {
     context: BrowserContext;
     contextPath: string;
-    createNewPage: boolean;
+    createNewPage?: boolean;
+    page?: PlaywrightPage;
   };
   actTimeoutMs?: number;
   logInferenceToFile?: boolean;
