@@ -40,91 +40,105 @@ export async function example() {
 
   // https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp
   await shPage.goto(
-    "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp",
+    "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp&region=rgn-n",
     { waitUntil: "load" },
   );
+  await shPage.waitForTimeout(1000);
 
-  const allCustomerCards = [];
-
+  const CARDS_PER_PAGE = 18;
   const MAX_INTERATIONS = 100;
   let currentIter = 0;
 
-  let hasMoreResults = true;
-  while (hasMoreResults && currentIter < MAX_INTERATIONS) {
-    const { customerCards } = await shPage.extract({
-      instruction:
-        "Extract the information from the customer cards on the page, starting at the current scroll position, and ending at the bottom of the page.",
-      schema: z.object({
-        customerCards: z.array(
-          z.object({
-            customerName: z
-              .string()
-              .describe("The name of the customer extracted from the heading."),
-            heading: z
-              .string()
-              .describe("The heading summary on the customer card."),
-            // logoUrl: z
-            //   .string()
-            //   .describe("The full url to the customer logo on the card."),
-            industry: z.string().describe("The customer industry on the card."),
-            location: z.string().describe("The customer location on the card."),
-            button: z
-              .object({
-                label: z
-                  .string()
-                  .describe(
-                    'The button label. Usually "Read more" or something similar.',
-                  ),
-                url: z.string().describe("The full href url to the button."),
-              })
-              .describe("The action button on the customer card."),
-          }),
-        ),
-      }),
-      useTextExtract: false, // Set this to true if you want to extract longer paragraphs
-    });
-
-    allCustomerCards.push(...customerCards);
-
-    console.log(JSON.stringify(customerCards, null, "\t"));
-    console.log(`Extracted ${customerCards.length} customers.`);
-
-    // await page.act('go down by one page to have new customer cards visible.');
-    await shPage.keyboard.press("PageDown");
-
-    // const overlayResults = await page.observe(
-    //   'Close the "chat now" overlay if visible.'
-    // );
-    // await drawObserveOverlay(page, overlayResults); // Highlight the search box
-    // await page.waitForTimeout(1000);
-    // await clearOverlays(page); // Remove the highlight before typing
-    // await page.act(overlayResults[0]);
-
-    const { hasSeeMoreButton } = await shPage.extract({
-      instruction:
-        'Check if the "See more" button at the bottom of the page is currently visible.',
-      schema: z.object({
-        hasSeeMoreButton: z
-          .boolean()
-          .describe(
-            'true if the "See more" button at the bottom of the page is visible. false if not.',
-          ),
-      }),
-    });
-
-    if (hasSeeMoreButton) {
-      await shPage.act('Click "See more" if visible, to load more customers.');
+  // here we will simply click the See more button until all of the cards are loaded
+  while (currentIter < MAX_INTERATIONS) {
+    try {
+      const [btnActionRes] = await shPage.observe({
+        instruction: `Click the "See more" button at the bottom of the page if it exists. 
+        If it does not exist do nothing. 
+        Do NOT click any other button. 
+        Do NOT navigate to any other site page.
+        Stay on the oracle.com/customers page at all times.`
+      });
       await shPage.waitForTimeout(1000);
-    } else {
-      hasMoreResults = false;
-      break;
+
+      if (!btnActionRes) break;
+
+      await shPage.act(btnActionRes);
+      await shPage.waitForTimeout(1000);
+    } catch (error) {
+      console.log('Failed to click see more button.', error.message);
+
+      const { hasSeeMoreButton } = await shPage.extract({
+        instruction: 'Check if the "See more" button exists at the bottom of the page, scrolling down as needed.',
+        schema: z.object({
+          hasSeeMoreButton: z.boolean().describe('true if the "See more" button at the bottom of the page. false if not.'),
+        }),
+      });
+
+      if (!hasSeeMoreButton) {
+        break;
+      }
     }
 
     currentIter++;
   }
 
+  const roughCustomerCardCount = CARDS_PER_PAGE * currentIter;
+
+  await shPage.waitForTimeout(1000);
+
+  const cardSchema = z.object({
+    customerCards: z.array(
+      z.object({
+        customerName: z.string().describe("The name of the customer extracted from the heading."),
+        heading: z.string().describe("The heading summary on the customer card."),
+        industry: z.string().describe("The customer industry on the card."),
+        location: z.string().describe("The customer location on the card."),
+        button: z.object({
+          label: z.string().describe('The button label. Usually "Read more" or something similar.'),
+          url: z.string().describe("The full href url to the button."),
+        }).describe("The action button on the customer card."),
+      }),
+    ),
+  });
+
+  type CustomerCards = z.infer<typeof cardSchema>['customerCards'];
+
+  const allCustomerCards: CustomerCards = [];
+
+  let cardpageI = 0;
+
+  // Now extract all of the info from the cards. This seems to work from the bottom up.
+  // NOTE: sometimes the scrolling doesn't seem to work very well and captures the same cards multiple times, and may not end will every card captured.
+  while (cardpageI <= MAX_INTERATIONS) {
+    const { customerCards } = await shPage.extract({
+      instruction:
+        `Extract the information from all of the customer cards on the page, scrolling the page as necessary. 
+        You know you reached the bottom by having a visible site footer and you know you reached the top by a visible filters above the customer cards.`,
+      schema: cardSchema,
+      useTextExtract: false, // Set this to true if you want to extract longer paragraphs
+    });
+
+    const newCards = customerCards.filter(card => allCustomerCards.findIndex(existingCard => card.customerName === existingCard.customerName) === -1);
+
+    if (newCards.length) {
+      allCustomerCards.push(...newCards);
+    }
+
+    // If the count of extracted customer cards are within the margin of one page size, exit the loop.
+    const topMargin = roughCustomerCardCount + CARDS_PER_PAGE;
+    const bottomMargin = roughCustomerCardCount - CARDS_PER_PAGE > 0 ? roughCustomerCardCount - CARDS_PER_PAGE : 0;
+    if (allCustomerCards.length >= bottomMargin && allCustomerCards.length <= topMargin) {
+      break;
+    }
+
+    cardpageI++;
+  }
+
   console.log(JSON.stringify(allCustomerCards, null, "\t"));
   console.log(`Extracted ${allCustomerCards.length} customers total.`);
+
+  await shPage.waitForTimeout(5000);
 
   console.log('Navigating on original page...');
   await page.goto("https://www.example.com/", { waitUntil: "load" });
