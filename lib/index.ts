@@ -1,5 +1,5 @@
 import { Browserbase } from "@browserbasehq/sdk";
-import { chromium } from "@playwright/test";
+import { chromium, type Page as PlaywrightPage } from "@playwright/test";
 import { randomUUID } from "crypto";
 import dotenv from "dotenv";
 import fs from "fs";
@@ -404,7 +404,8 @@ export class Stagehand {
   private browserContext?: {
     context: BrowserContext;
     contextPath: string;
-    createNewPage: boolean;
+    createNewPage?: boolean;
+    page?: PlaywrightPage;
   };
 
   constructor(
@@ -601,6 +602,17 @@ export class Stagehand {
       const newPwPage = await this.context.newPage();
       defaultPage = await new StagehandPage(
         newPwPage,
+        this,
+        this.stagehandContext,
+        this.llmClient,
+        this.userProvidedInstructions,
+        this.apiClient,
+        this.waitForCaptchaSolves,
+      ).init();
+    } else if (this.browserContext.page) {
+      const pwPage = this.browserContext.page;
+      defaultPage = await new StagehandPage(
+        pwPage,
         this,
         this.stagehandContext,
         this.llmClient,
