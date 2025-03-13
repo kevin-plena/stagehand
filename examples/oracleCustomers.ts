@@ -46,11 +46,11 @@ export async function example() {
   await shPage.waitForTimeout(1000);
 
   const CARDS_PER_PAGE = 18;
-  const MAX_INTERATIONS = 100;
+  const MAX_ITERATIONS = 100;
   let currentIter = 0;
 
   // here we will simply click the See more button until all of the cards are loaded
-  while (currentIter < MAX_INTERATIONS) {
+  while (currentIter < MAX_ITERATIONS) {
     try {
       const [btnActionRes] = await shPage.observe({
         instruction: `Click the "See more" button at the bottom of the page if it exists. 
@@ -83,6 +83,9 @@ export async function example() {
     currentIter++;
   }
 
+  // Jump to the bottom of the page
+  await shPage.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+
   const roughCustomerCardCount = CARDS_PER_PAGE * currentIter;
 
   await shPage.waitForTimeout(1000);
@@ -109,8 +112,8 @@ export async function example() {
   let cardpageI = 0;
 
   // Now extract all of the info from the cards. This seems to work from the bottom up.
-  // NOTE: sometimes the scrolling doesn't seem to work very well and captures the same cards multiple times, and may not end will every card captured.
-  while (cardpageI <= MAX_INTERATIONS) {
+  // NOTE: sometimes the scrolling doesn't seem to work very well and captures the same cards multiple times, and may not end with every card captured.
+  while (cardpageI <= MAX_ITERATIONS) {
     const { customerCards } = await shPage.extract({
       instruction:
         `Extract the information from all of the customer cards on the page, scrolling the page as necessary. 
@@ -119,7 +122,7 @@ export async function example() {
       useTextExtract: false, // Set this to true if you want to extract longer paragraphs
     });
 
-    const newCards = customerCards.filter(card => allCustomerCards.findIndex(existingCard => card.customerName === existingCard.customerName) === -1);
+    const newCards = customerCards.filter(card => allCustomerCards.findIndex(existingCard => card.button.url === existingCard.button.url) === -1);
 
     if (newCards.length) {
       allCustomerCards.push(...newCards);
@@ -128,14 +131,14 @@ export async function example() {
     // If the count of extracted customer cards are within the margin of one page size, exit the loop.
     const topMargin = roughCustomerCardCount + CARDS_PER_PAGE;
     const bottomMargin = roughCustomerCardCount - CARDS_PER_PAGE > 0 ? roughCustomerCardCount - CARDS_PER_PAGE : 0;
-    if (allCustomerCards.length >= bottomMargin && allCustomerCards.length <= topMargin) {
+    if (allCustomerCards.length >= bottomMargin && allCustomerCards.length <= topMargin && !newCards.length) {
       break;
     }
 
     cardpageI++;
   }
 
-  console.log(JSON.stringify(allCustomerCards, null, "\t"));
+  fs.writeFileSync("customerCards.json", JSON.stringify(allCustomerCards, null, 2));
   console.log(`Extracted ${allCustomerCards.length} customers total.`);
 
   await shPage.waitForTimeout(5000);
