@@ -674,7 +674,7 @@ export class Stagehand {
     this.stagehandContext = await StagehandContext.init(context, this);
 
     let defaultPage = (await this.stagehandContext.getStagehandPages())[0];
-    if (this.browserContext.createNewPage) {
+    if (this.browserContext?.createNewPage) {
       const newPwPage = await this.context.newPage();
       defaultPage = await new StagehandPage(
         newPwPage,
@@ -685,7 +685,7 @@ export class Stagehand {
         this.apiClient,
         this.waitForCaptchaSolves,
       ).init();
-    } else if (this.browserContext.page) {
+    } else if (this.browserContext?.page) {
       const pwPage = this.browserContext.page;
       defaultPage = await new StagehandPage(
         pwPage,
