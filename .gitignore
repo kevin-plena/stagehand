@@ -8,7 +8,6 @@ screenshot.png
 .cache/
 .env
 downloads/
-dist/
 evals/**/public
 lib/dom/build/
 evals/public
@@ -18,3 +17,8 @@ tmp/
 eval-summary.json
 pnpm-lock.yaml
 evals/deterministic/tests/BrowserContext/tmp-test.har
+.changeset
+docs/
+evals/
+examples/
+types/
