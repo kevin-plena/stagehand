@@ -33,7 +33,8 @@
     "build": "npm run build-dom-scripts && npm run build-js && npm run build-types",
     "lint": "npm run prettier && npm run eslint",
     "release": "npm run build && changeset publish",
-    "release-canary": "npm run build && changeset version --snapshot && changeset publish --tag alpha"
+    "release-canary": "npm run build && changeset version --snapshot && changeset publish --tag alpha",
+    "release-git": "npm run build && git push release release:main"
   },
   "files": [
     "dist/**",
