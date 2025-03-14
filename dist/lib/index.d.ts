@@ -40,7 +40,7 @@ export declare class Stagehand {
     protected setActivePage(page: StagehandPage): void;
     get page(): Page;
     private browserContext?;
-    constructor({ env, apiKey, projectId, verbose, debugDom, llmProvider, llmClient, headless, logger, browserbaseSessionCreateParams, domSettleTimeoutMs, enableCaching, browserbaseSessionID, modelName, modelClientOptions, systemPrompt, useAPI, localBrowserLaunchOptions, selfHeal, waitForCaptchaSolves, browserContext, actTimeoutMs, }?: ConstructorParams);
+    constructor({ env, apiKey, projectId, verbose, debugDom, llmProvider, llmClient, headless, logger, browserbaseSessionCreateParams, domSettleTimeoutMs, enableCaching, browserbaseSessionID, modelName, modelClientOptions, systemPrompt, useAPI, localBrowserLaunchOptions, selfHeal, waitForCaptchaSolves, browserContext, remoteClientHandler, actTimeoutMs, }?: ConstructorParams);
     private registerSignalHandlers;
     get logger(): (logLine: LogLine) => void;
     get env(): "LOCAL" | "BROWSERBASE";

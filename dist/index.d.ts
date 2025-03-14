@@ -2,7 +2,8 @@ import { z, ZodType } from 'zod';
 import { Cookie, Page as Page$1, BrowserContext as BrowserContext$1, Browser as Browser$1, CDPSession } from '@playwright/test';
 import Browserbase from '@browserbasehq/sdk';
 import { ClientOptions as ClientOptions$2 } from '@anthropic-ai/sdk';
-import { ClientOptions as ClientOptions$1 } from 'openai';
+import OpenAI, { ClientOptions as ClientOptions$1 } from 'openai';
+import { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat';
 
 type LogLine = {
     id?: string;
@@ -124,10 +125,13 @@ declare class LLMProvider {
     private cache;
     constructor(logger: (message: LogLine) => void, enableCaching: boolean);
     cleanRequestCache(requestId: string): void;
-    getClient(modelName: AvailableModel, clientOptions?: ClientOptions): LLMClient;
+    getClient(modelName: AvailableModel, clientOptions?: ClientOptions, remoteClientHandler?: RemoteClientHandler): LLMClient;
     static getModelProvider(modelName: AvailableModel): ModelProvider;
 }
 
+type RemoteClientHandler = (clientOptions: ClientOptions, body: ChatCompletionCreateParamsNonStreaming) => Promise<OpenAI.Chat.Completions.ChatCompletion & {
+    _request_id?: string | null;
+}>;
 interface ConstructorParams {
     env: "LOCAL" | "BROWSERBASE";
     apiKey?: string;
@@ -167,6 +171,7 @@ interface ConstructorParams {
         createNewPage?: boolean;
         page?: Page$1;
     };
+    remoteClientHandler?: RemoteClientHandler;
     actTimeoutMs?: number;
 }
 interface InitOptions {
@@ -478,7 +483,7 @@ declare class Stagehand {
     protected setActivePage(page: StagehandPage): void;
     get page(): Page;
     private browserContext?;
-    constructor({ env, apiKey, projectId, verbose, debugDom, llmProvider, llmClient, headless, logger, browserbaseSessionCreateParams, domSettleTimeoutMs, enableCaching, browserbaseSessionID, modelName, modelClientOptions, systemPrompt, useAPI, localBrowserLaunchOptions, selfHeal, waitForCaptchaSolves, browserContext, actTimeoutMs, }?: ConstructorParams);
+    constructor({ env, apiKey, projectId, verbose, debugDom, llmProvider, llmClient, headless, logger, browserbaseSessionCreateParams, domSettleTimeoutMs, enableCaching, browserbaseSessionID, modelName, modelClientOptions, systemPrompt, useAPI, localBrowserLaunchOptions, selfHeal, waitForCaptchaSolves, browserContext, remoteClientHandler, actTimeoutMs, }?: ConstructorParams);
     private registerSignalHandlers;
     get logger(): (logLine: LogLine) => void;
     get env(): "LOCAL" | "BROWSERBASE";
@@ -502,4 +507,4 @@ declare class Stagehand {
     close(): Promise<void>;
 }
 
-export { type ActOptions, type ActResult, AnnotatedScreenshotText, type AnthropicJsonSchemaObject, type AvailableModel, AvailableModelSchema, type Browser, type BrowserContext, type BrowserResult, type ChatCompletionOptions, type ChatMessage, type ChatMessageContent, type ChatMessageImageContent, type ChatMessageTextContent, type ClientOptions, type ConstructorParams, type CreateChatCompletionOptions, type ExtractOptions, type ExtractResult, type GotoOptions, type InitFromPageOptions, type InitFromPageResult, type InitOptions, type InitResult, LLMClient, type LLMResponse, type LocalBrowserLaunchOptions, type LogLine, type ModelProvider, type ObserveOptions, type ObserveResult, type Page, PlaywrightCommandException, PlaywrightCommandMethodNotSupportedException, Stagehand, applyStealthScripts, defaultExtractSchema, pageTextSchema };
+export { type ActOptions, type ActResult, AnnotatedScreenshotText, type AnthropicJsonSchemaObject, type AvailableModel, AvailableModelSchema, type Browser, type BrowserContext, type BrowserResult, type ChatCompletionOptions, type ChatMessage, type ChatMessageContent, type ChatMessageImageContent, type ChatMessageTextContent, type ClientOptions, type ConstructorParams, type CreateChatCompletionOptions, type ExtractOptions, type ExtractResult, type GotoOptions, type InitFromPageOptions, type InitFromPageResult, type InitOptions, type InitResult, LLMClient, type LLMResponse, type LocalBrowserLaunchOptions, type LogLine, type ModelProvider, type ObserveOptions, type ObserveResult, type Page, PlaywrightCommandException, PlaywrightCommandMethodNotSupportedException, type RemoteClientHandler, Stagehand, applyStealthScripts, defaultExtractSchema, pageTextSchema };

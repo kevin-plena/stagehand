@@ -5375,12 +5375,14 @@ var OpenAIClient = class extends LLMClient {
     enableCaching = false,
     cache,
     modelName,
-    clientOptions
+    clientOptions,
+    remoteClientHandler
   }) {
     super(modelName);
     this.type = "openai";
     this.clientOptions = clientOptions;
-    this.client = new import_openai3.default(clientOptions);
+    this.remoteClientHandler = remoteClientHandler;
+    this.client = !remoteClientHandler ? new import_openai3.default(clientOptions) : null;
     this.cache = cache;
     this.enableCaching = enableCaching;
     this.modelName = modelName;
@@ -5639,7 +5641,12 @@ ${parsedSchema}
           type: "function"
         }))
       });
-      const response = yield this.client.chat.completions.create(body);
+      let response;
+      if (this.remoteClientHandler) {
+        response = yield this.remoteClientHandler(this.clientOptions, body);
+      } else {
+        response = yield this.client.chat.completions.create(body);
+      }
       if (isToolsOverridedForO1) {
         try {
           const parsedContent = JSON.parse(response.choices[0].message.content);
@@ -5786,7 +5793,7 @@ var LLMProvider = class {
     });
     this.cache.deleteCacheForRequestId(requestId);
   }
-  getClient(modelName, clientOptions) {
+  getClient(modelName, clientOptions, remoteClientHandler) {
     const provider = modelToProviderMap[modelName];
     if (!provider) {
       throw new Error(`Unsupported model: ${modelName}`);
@@ -5798,7 +5805,8 @@ var LLMProvider = class {
           enableCaching: this.enableCaching,
           cache: this.cache,
           modelName,
-          clientOptions
+          clientOptions,
+          remoteClientHandler
         });
       case "anthropic":
         return new AnthropicClient({
@@ -6143,6 +6151,7 @@ var Stagehand = class {
     selfHeal = true,
     waitForCaptchaSolves = false,
     browserContext,
+    remoteClientHandler,
     actTimeoutMs = 6e4
   } = {
     env: "BROWSERBASE"
@@ -6164,7 +6173,8 @@ var Stagehand = class {
       try {
         this.llmClient = this.llmProvider.getClient(
           modelName != null ? modelName : DEFAULT_MODEL_NAME,
-          modelClientOptions
+          modelClientOptions,
+          remoteClientHandler
         );
       } catch (e) {
         this.llmClient = void 0;
