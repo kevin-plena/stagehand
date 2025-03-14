@@ -7,6 +7,12 @@ import { AvailableModel, ClientOptions } from "./model";
 import { LLMClient } from "../lib/llm/LLMClient";
 import { Cookie, type Page as PlaywrightPage } from "@playwright/test";
 import { AgentProviderType } from "./agent";
+import OpenAI from "openai";
+import { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat";
+
+export type RemoteClientHandler = (clientOptions: ClientOptions, body: ChatCompletionCreateParamsNonStreaming) => Promise<OpenAI.Chat.Completions.ChatCompletion & {
+  _request_id?: string | null;
+}>;
 
 export interface ConstructorParams {
   env: "LOCAL" | "BROWSERBASE";
@@ -48,6 +54,7 @@ export interface ConstructorParams {
     createNewPage?: boolean;
     page?: PlaywrightPage;
   };
+  remoteClientHandler?: RemoteClientHandler;
   actTimeoutMs?: number;
   logInferenceToFile?: boolean;
 }

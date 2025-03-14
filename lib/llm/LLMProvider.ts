@@ -1,3 +1,4 @@
+import type { RemoteClientHandler } from "@/types/stagehand";
 import { LogLine } from "../../types/log";
 import {
   AvailableModel,
@@ -63,6 +64,7 @@ export class LLMProvider {
   getClient(
     modelName: AvailableModel,
     clientOptions?: ClientOptions,
+    remoteClientHandler?: RemoteClientHandler
   ): LLMClient {
     const provider = modelToProviderMap[modelName];
     if (!provider) {
@@ -77,6 +79,7 @@ export class LLMProvider {
           cache: this.cache,
           modelName,
           clientOptions,
+          remoteClientHandler
         });
       case "anthropic":
         return new AnthropicClient({

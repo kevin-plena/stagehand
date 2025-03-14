@@ -495,6 +495,7 @@ export class Stagehand {
       selfHeal = true,
       waitForCaptchaSolves = false,
       browserContext,
+      remoteClientHandler,
       actTimeoutMs = 60_000,
       logInferenceToFile = false,
     }: ConstructorParams = {
@@ -520,6 +521,7 @@ export class Stagehand {
         this.llmClient = this.llmProvider.getClient(
           modelName ?? DEFAULT_MODEL_NAME,
           modelClientOptions,
+          remoteClientHandler
         );
       } catch {
         this.llmClient = undefined;

@@ -18,6 +18,8 @@ import fs from "fs";
 import os from "os";
 import { z } from "zod";
 import { LocalBrowserLaunchOptions } from "@/types/stagehand";
+import OpenAI, { ClientOptions } from "openai";
+import { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat";
 
 export async function example() {
   const { context } = await initCdpBrowser();
@@ -33,6 +35,7 @@ export async function example() {
       // createNewPage: true,
       page,
     },
+    remoteClientHandler
   });
   await stagehand.init();
 
@@ -40,7 +43,8 @@ export async function example() {
 
   // https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp
   await shPage.goto(
-    "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp&region=rgn-n",
+    // "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp&region=rgn-n",
+    "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp&region=rgn-j",
     { waitUntil: "load" },
   );
   await shPage.waitForTimeout(1000);
@@ -218,6 +222,19 @@ const initCdpBrowser = async () => {
 
   return { browser, context };
 };
+
+const remoteClientHandler = async (clientOptions: ClientOptions, body: ChatCompletionCreateParamsNonStreaming) => {
+  // For making OpenAI API requests to a backend server.
+  // For now, we will simply use the client here in this example.
+  const client = new OpenAI({
+    ...clientOptions,
+    apiKey: process.env.DETACHED_API_KEY
+  });
+
+  const response = await client.chat.completions.create(body);
+
+  return response;
+}
 
 (async () => {
   await example();
