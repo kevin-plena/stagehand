@@ -21,6 +21,7 @@ import {
   LLMClient,
   LLMResponse,
 } from "./LLMClient";
+import type { RemoteClientHandler } from "@/types/stagehand";
 
 export class OpenAIClient extends LLMClient {
   public type = "openai" as const;
@@ -28,22 +29,26 @@ export class OpenAIClient extends LLMClient {
   private cache: LLMCache | undefined;
   private enableCaching: boolean;
   public clientOptions: ClientOptions;
+  private remoteClientHandler?: RemoteClientHandler
 
   constructor({
     enableCaching = false,
     cache,
     modelName,
     clientOptions,
+    remoteClientHandler
   }: {
     logger: (message: LogLine) => void;
     enableCaching?: boolean;
     cache?: LLMCache;
     modelName: AvailableModel;
     clientOptions?: ClientOptions;
+    remoteClientHandler?: RemoteClientHandler;
   }) {
     super(modelName);
     this.clientOptions = clientOptions;
-    this.client = new OpenAI(clientOptions);
+    this.remoteClientHandler = remoteClientHandler;
+    this.client = !remoteClientHandler ? new OpenAI(clientOptions) : null;
     this.cache = cache;
     this.enableCaching = enableCaching;
     this.modelName = modelName;
@@ -339,7 +344,12 @@ export class OpenAIClient extends LLMClient {
       })),
     };
 
-    const response = await this.client.chat.completions.create(body);
+    let response;
+    if (this.remoteClientHandler) {
+      response = await this.remoteClientHandler(this.clientOptions, body);
+    } else {
+      response = await this.client.chat.completions.create(body);
+    }
 
     // For O1 models, we need to parse the tool call response manually and add it to the response.
     if (isToolsOverridedForO1) {
