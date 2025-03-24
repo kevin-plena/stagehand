@@ -17,6 +17,7 @@ export interface AgentOptions {
   maxSteps?: number;
   autoScreenshot?: boolean;
   waitBetweenActions?: number;
+  waitBetweenSteps?: number;
   context?: string;
 }
 
@@ -117,25 +118,25 @@ export interface FunctionCallItem extends ResponseItem {
 export type ResponseInputItem =
   | { role: string; content: string }
   | {
-      type: "computer_call_output";
-      call_id: string;
-      output:
-        | {
-            type: "input_image";
-            image_url: string;
-            current_url?: string;
-            error?: string;
-            [key: string]: unknown;
-          }
-        | string;
-      acknowledged_safety_checks?: Array<{
-        id: string;
-        code: string;
-        message: string;
-      }>;
+    type: "computer_call_output";
+    call_id: string;
+    output:
+    | {
+      type: "input_image";
+      image_url: string;
+      current_url?: string;
+      error?: string;
+      [key: string]: unknown;
     }
+    | string;
+    acknowledged_safety_checks?: Array<{
+      id: string;
+      code: string;
+      message: string;
+    }>;
+  }
   | {
-      type: "function_call_output";
-      call_id: string;
-      output: string;
-    };
+    type: "function_call_output";
+    call_id: string;
+    output: string;
+  };

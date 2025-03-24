@@ -89,6 +89,7 @@ export class AnthropicCUAClient extends AgentClient {
     const { options, logger } = executionOptions;
     const { instruction } = options;
     const maxSteps = options.maxSteps || 10;
+    const waitBetweenSteps = options.waitBetweenSteps || 0;
 
     let currentStep = 0;
     let completed = false;
@@ -140,6 +141,9 @@ export class AnthropicCUAClient extends AgentClient {
           messageList.push(result.message);
           finalMessage = result.message;
         }
+
+        // Add a delay after the step for better visibility or rate limiting
+        await new Promise((resolve) => setTimeout(resolve, waitBetweenSteps));
 
         // Increment step counter
         currentStep++;
@@ -376,6 +380,17 @@ export class AnthropicCUAClient extends AgentClient {
         ? { type: "enabled" as const, budget_tokens: this.thinkingBudget }
         : undefined;
 
+      const modelToolMap: { [modelName: string]: { type: string; betas: string[]; } } = {
+        "claude-3-7-sonnet-20250219": {
+          type: "computer_20250124",
+          betas: ["computer-use-2025-01-24"]
+        },
+        "claude-3-5-sonnet-20241022": {
+          type: "computer_20241022",
+          betas: ["computer-use-2024-10-22"]
+        }
+      };
+
       // Create the request parameters
       const requestParams: Record<string, unknown> = {
         model: this.modelName,
@@ -383,14 +398,16 @@ export class AnthropicCUAClient extends AgentClient {
         messages: messages,
         tools: [
           {
-            type: "computer_20250124", // Use the latest version for Claude 3.7 Sonnet
+            // type: "computer_20250124", // Use the latest version for Claude 3.7 Sonnet
+            type: modelToolMap[this.modelName].type,
             name: "computer",
             display_width_px: this.currentViewport.width,
             display_height_px: this.currentViewport.height,
             display_number: 1,
           },
         ],
-        betas: ["computer-use-2025-01-24"],
+        // betas: ["computer-use-2025-01-24"],
+        betas: modelToolMap[this.modelName].betas,
       };
 
       // Add system parameter if provided
@@ -718,15 +735,15 @@ export class AnthropicCUAClient extends AgentClient {
             (input.path as { x: number; y: number }[]) ||
             (input.coordinate
               ? [
-                  {
-                    x: (input.start_coordinate as number[])[0],
-                    y: (input.start_coordinate as number[])[1],
-                  },
-                  {
-                    x: (input.coordinate as number[])[0],
-                    y: (input.coordinate as number[])[1],
-                  },
-                ]
+                {
+                  x: (input.start_coordinate as number[])[0],
+                  y: (input.start_coordinate as number[])[1],
+                },
+                {
+                  x: (input.coordinate as number[])[0],
+                  y: (input.coordinate as number[])[1],
+                },
+              ]
               : []);
 
           return {

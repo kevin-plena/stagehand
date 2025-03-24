@@ -370,6 +370,10 @@ export class StagehandAgentHandler {
             await this.stagehandPage.page.keyboard.press("Escape");
           } else if (text === "Backspace") {
             await this.stagehandPage.page.keyboard.press("Backspace");
+          } else if (text === "Page_Up") {
+            await this.stagehandPage.page.keyboard.press('PageUp');
+          } else if (text === "Page_Down") {
+            await this.stagehandPage.page.keyboard.press('PageDown');
           } else {
             // For other keys, try to press directly
             await this.stagehandPage.page.keyboard.press(text as string);
