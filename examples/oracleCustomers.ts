@@ -12,14 +12,30 @@
  */
 import { Stagehand } from "@/dist";
 import StagehandConfig from "@/stagehand.config";
-import { Browser, chromium } from "@playwright/test";
-import path from "path";
 import fs from "fs";
-import os from "os";
 import { z } from "zod";
-import { LocalBrowserLaunchOptions } from "@/types/stagehand";
-import OpenAI, { ClientOptions } from "openai";
-import { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat";
+import chalk from "chalk";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import { getContextPath, initCdpBrowser, setPageViewportSize } from "./exampleUtils";
+
+
+const cardSchema = z.object({
+  customerCards: z.array(
+    z.object({
+      customerName: z.string().describe("The name of the customer extracted from the heading."),
+      heading: z.string().describe("The heading summary on the customer card."),
+      industry: z.string().describe("The customer industry on the card."),
+      location: z.string().describe("The customer location on the card."),
+      button: z.object({
+        label: z.string().describe('The button label. Usually "Read more" or something similar.'),
+        url: z.string().describe("The full href url to the button."),
+      }).describe("The action button on the customer card."),
+    }),
+  ),
+});
+
+type CustomerCards = z.infer<typeof cardSchema>['customerCards'];
+
 
 export async function example() {
   const { context } = await initCdpBrowser();
@@ -35,7 +51,7 @@ export async function example() {
       // createNewPage: true,
       page,
     },
-    remoteClientHandler
+    // remoteClientHandler
   });
   await stagehand.init();
 
@@ -94,23 +110,6 @@ export async function example() {
 
   await shPage.waitForTimeout(1000);
 
-  const cardSchema = z.object({
-    customerCards: z.array(
-      z.object({
-        customerName: z.string().describe("The name of the customer extracted from the heading."),
-        heading: z.string().describe("The heading summary on the customer card."),
-        industry: z.string().describe("The customer industry on the card."),
-        location: z.string().describe("The customer location on the card."),
-        button: z.object({
-          label: z.string().describe('The button label. Usually "Read more" or something similar.'),
-          url: z.string().describe("The full href url to the button."),
-        }).describe("The action button on the customer card."),
-      }),
-    ),
-  });
-
-  type CustomerCards = z.infer<typeof cardSchema>['customerCards'];
-
   const allCustomerCards: CustomerCards = [];
 
   let cardpageI = 0;
@@ -151,91 +150,139 @@ export async function example() {
   await page.goto("https://www.example.com/", { waitUntil: "load" });
 }
 
-const getContextPath = (
-  localBrowserLaunchOptions: LocalBrowserLaunchOptions,
-) => {
-  let userDataDir = localBrowserLaunchOptions?.userDataDir;
-  if (!userDataDir) {
-    const tmpDirPath = path.join(os.tmpdir(), "stagehand");
-    if (!fs.existsSync(tmpDirPath)) {
-      fs.mkdirSync(tmpDirPath, { recursive: true });
-    }
+export async function agentExample() {
+  const { context } = await initCdpBrowser();
+  const contextPath = getContextPath(StagehandConfig.localBrowserLaunchOptions);
 
-    const tmpDir = fs.mkdtempSync(path.join(tmpDirPath, "ctx_"));
-    fs.mkdirSync(path.join(tmpDir, "userdir/Default"), { recursive: true });
+  const page = await context.newPage();
 
-    const defaultPreferences = {
-      plugins: {
-        always_open_pdf_externally: true,
-      },
-    };
+  setPageViewportSize(page);
 
-    fs.writeFileSync(
-      path.join(tmpDir, "userdir/Default/Preferences"),
-      JSON.stringify(defaultPreferences),
-    );
-    userDataDir = path.join(tmpDir, "userdir");
-  }
+  const stagehand = new Stagehand({
+    ...StagehandConfig,
+    browserContext: {
+      context,
+      contextPath,
+      // createNewPage: true,
+      page,
+    },
+    // remoteClientHandler
+  });
+  await stagehand.init();
 
-  return userDataDir;
-};
+  const shPage = stagehand.page;
 
-const initCdpBrowser = async () => {
-  const browser = await chromium.connectOverCDP("http://localhost:9222");
-  const context = browser.contexts()[0];
-  // const page = context.pages()[0];
-
-  console.log(
-    JSON.stringify({ version: browser.version }),
-    "Connected to user browser",
+  // https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp
+  await shPage.goto(
+    // "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp&region=rgn-n",
+    "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp&region=rgn-j",
+    { waitUntil: "load" },
   );
-  try {
-    const cdp = await browser.newBrowserCDPSession();
-    const behavior = {
-      behavior: "default" as const,
-    };
-    await cdp.send("Browser.setDownloadBehavior", behavior);
-  } catch (error) {
-    console.error(
-      error,
-      `got error while setting download behaviour to default`,
-    );
-  }
+  await shPage.waitForTimeout(1000);
 
-  const callback = async (browser: Browser) => {
-    console.log("Browser disconnected");
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    const browserCloseReason = browser._closeReason;
-    if (browserCloseReason) {
-      if (browserCloseReason === "Browser closed after task complete") {
-        console.log(browserCloseReason, "Browser closed by plena");
-      } else {
-        console.log(browserCloseReason, "Plena Did NOT close the Browser");
-      }
-    } else {
-      console.log(browser, "Plena Did NOT close the Browser");
+  // Remove the chatbotLoc element from the page
+  const chatbotLoc = shPage.locator('ocom-chatbot');
+  await chatbotLoc.evaluate((elem) => {
+    // const elem = document.querySelector('ocom-chatbot');
+    if (elem) {
+      elem.remove();
     }
-  };
-
-  browser.on("disconnected", callback.bind(this));
-
-  return { browser, context };
-};
-
-const remoteClientHandler = async (clientOptions: ClientOptions, body: ChatCompletionCreateParamsNonStreaming) => {
-  // For making OpenAI API requests to a backend server.
-  // For now, we will simply use the client here in this example.
-  const client = new OpenAI({
-    ...clientOptions,
-    apiKey: process.env.DETACHED_API_KEY
+  });
+  // Remove the filter section element from the page
+  const filterSectionLoc = shPage.locator('section#filter-section');
+  await filterSectionLoc.evaluate((elem) => {
+    if (elem) {
+      elem.remove();
+    }
   });
 
-  const response = await client.chat.completions.create(body);
+  const agent = stagehand.agent({
+    // provider: "openai",
+    // model: "computer-use-preview-2025-02-04",
+    provider: "anthropic",
+    model: "claude-3-7-sonnet-20250219",
+    // model: "claude-3-5-sonnet-20240620",
+    // model: "claude-3-5-sonnet-20241022",
+    instructions: `You are a helpful assistant that can use a web browser.
+    You are currently on the following page: ${page.url()}.
+    Do not ask follow up questions, the user will trust your judgement.`,
+    options: {
+      // apiKey: process.env.OPENAI_API_KEY,
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    },
+  });
 
-  return response;
+  const parsedSchema = JSON.stringify(zodToJsonSchema(cardSchema));
+
+  // Click the X button to close the "Chat now" popup if it appears and is obstructing the view.
+
+  // Execute the agent again with a different instruction
+  const firstInstruction = `
+  Extract the information from all of the customer cards on the page, scrolling down the page.
+  Only scroll the page once and extract the information as you go down.
+  The filters have already been applied to show the correct customers.
+  Do not navigate to any other page or click any buttons. You should be on the oracle.com/customers page at all times.
+
+  Once the bottom is reached, stop the execution.
+
+  Respond in this zod schema format:\n${parsedSchema}\n
+
+  Do not include any other text, formatting or markdown in your output. Do not include \`\`\` or \`\`\`json in your response. Only the JSON object itself.
+  `;
+  console.log(
+    `${chalk.cyan("↳")} Instruction: ${chalk.white(firstInstruction)}`,
+  );
+
+  const result1 = await agent.execute({
+    instruction: firstInstruction,
+    waitBetweenActions: 60000,
+    waitBetweenSteps: 40000,
+    maxSteps: 11,
+  });
+
+  console.log(`${chalk.green("✓")} Execution complete`);
+  console.log(`${chalk.yellow("⤷")} Result:`);
+  // console.log(chalk.white(JSON.stringify(result1, null, 2)));
+  fs.writeFileSync("./tmp/result1.json", JSON.stringify(result1, null, 2));
+  // console.log(`Extracted ${allCustomerCards.length} customers total.`);
+
+
+  const instruction2 = `
+  Continue extracting the information from all of the customer cards on the page, scrolling down the page.
+  Only scroll the page once and extract the information as you go down.
+  The filters have already been applied to show the correct customers.
+  Assume the first visible customer cards have already been extracted.
+
+  If the "See more" button exists at the bottom of the page, click it to load in more customers.
+  Do not navigate to any other page or click any other buttons. You should be on the oracle.com/customers page at all times.
+  Once the bottom is reached, stop the execution.
+
+  Respond in this zod schema format:\n${parsedSchema}\n
+
+  Do not include any other text, formatting or markdown in your output. Do not include \`\`\` or \`\`\`json in your response. Only the JSON object itself.
+  `;
+  console.log(
+    `${chalk.cyan("↳")} Instruction: ${chalk.white(instruction2)}`,
+  );
+
+  const result2 = await agent.execute({
+    instruction: instruction2,
+    waitBetweenActions: 60000,
+    waitBetweenSteps: 40000,
+    maxSteps: 11,
+  });
+
+  console.log(`${chalk.green("✓")} Execution complete`);
+  console.log(`${chalk.yellow("⤷")} Result2:`);
+  fs.writeFileSync("./tmp/result2.json", JSON.stringify(result2, null, 2));
+
+  // await shPage.waitForTimeout(5000);
+
+  // console.log('Navigating on original page...');
+  // await page.goto("https://www.example.com/", { waitUntil: "load" });
 }
 
 (async () => {
-  await example();
+  // await example();
+  await agentExample();
 })();
