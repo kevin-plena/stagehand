@@ -1,4 +1,11 @@
 import { LogLine } from "./log";
+import { ClientOptions } from "./model";
+
+export type RemoteAgentClientHandler = <T extends "openai" | "anthropic">(provider: T, providerOptions: {
+  clientOptions: ClientOptions;
+  body: Record<string, unknown>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+}) => Promise<any>;
 
 export interface AgentAction {
   type: string;
@@ -48,6 +55,7 @@ export interface AgentHandlerOptions {
   clientOptions?: Record<string, unknown>;
   userProvidedInstructions?: string;
   agentType: AgentType;
+  remoteAgentClientHandler?: RemoteAgentClientHandler;
 }
 
 export interface ActionExecutionResult {

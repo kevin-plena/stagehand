@@ -16,7 +16,7 @@ import fs from "fs";
 import { z } from "zod";
 import chalk from "chalk";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { getContextPath, initCdpBrowser, setPageViewportSize, extractJson } from "./exampleUtils";
+import { getContextPath, initCdpBrowser, setPageViewportSize, extractJson, remoteAgentClientHandler } from "./exampleUtils";
 
 
 const dataSchema = z.object({
@@ -101,19 +101,15 @@ export async function agentExample() {
   await shPage.waitForTimeout(1000);
 
   const agent = stagehand.agent({
-    // provider: "openai",
-    // model: "computer-use-preview-2025-02-04",
     provider: "anthropic",
     model: "claude-3-7-sonnet-20250219",
-    // model: "claude-3-5-sonnet-20240620",
-    // model: "claude-3-5-sonnet-20241022",
     instructions: `You are a helpful assistant that can use a web browser.
     You are currently on the following page: ${page.url()}.
     Do not ask follow up questions, the user will trust your judgement.`,
     options: {
-      // apiKey: process.env.OPENAI_API_KEY,
       apiKey: process.env.ANTHROPIC_API_KEY,
     },
+    remoteAgentClientHandler
   });
 
   const parsedSchema = JSON.stringify(zodToJsonSchema(dataSchema));

@@ -1,6 +1,6 @@
 import { LogLine } from "@/types/log";
 import { AgentClient } from "./AgentClient";
-import { AgentType } from "@/types/agent";
+import { AgentType, RemoteAgentClientHandler } from "@/types/agent";
 import { OpenAICUAClient } from "./OpenAICUAClient";
 import { AnthropicCUAClient } from "./AnthropicCUAClient";
 
@@ -32,6 +32,7 @@ export class AgentProvider {
     modelName: string,
     clientOptions?: Record<string, unknown>,
     userProvidedInstructions?: string,
+    remoteAgentClientHandler?: RemoteAgentClientHandler
   ): AgentClient {
     const type = AgentProvider.getAgentProvider(modelName);
     this.logger({
@@ -48,6 +49,7 @@ export class AgentProvider {
             modelName,
             userProvidedInstructions,
             clientOptions,
+            remoteAgentClientHandler
           );
         case "anthropic":
           return new AnthropicCUAClient(
@@ -55,6 +57,7 @@ export class AgentProvider {
             modelName,
             userProvidedInstructions,
             clientOptions,
+            remoteAgentClientHandler
           );
         default:
           throw new Error(`Unknown agent type: ${type}`);

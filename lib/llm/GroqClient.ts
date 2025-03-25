@@ -10,6 +10,7 @@ import {
   LLMClient,
   LLMResponse,
 } from "./LLMClient";
+import { RemoteClientHandler } from "@/types/stagehand";
 
 export class GroqClient extends LLMClient {
   public type = "groq" as const;
@@ -18,6 +19,7 @@ export class GroqClient extends LLMClient {
   private enableCaching: boolean;
   public clientOptions: ClientOptions;
   public hasVision = false;
+  private remoteClientHandler?: RemoteClientHandler;
 
   constructor({
     enableCaching = false,
@@ -25,6 +27,7 @@ export class GroqClient extends LLMClient {
     modelName,
     clientOptions,
     userProvidedInstructions,
+    remoteClientHandler
   }: {
     logger: (message: LogLine) => void;
     enableCaching?: boolean;
@@ -32,15 +35,18 @@ export class GroqClient extends LLMClient {
     modelName: AvailableModel;
     clientOptions?: ClientOptions;
     userProvidedInstructions?: string;
+    remoteClientHandler?: RemoteClientHandler
   }) {
     super(modelName, userProvidedInstructions);
 
+    this.remoteClientHandler = remoteClientHandler;
+
     // Create OpenAI client with the base URL set to Groq API
-    this.client = new OpenAI({
+    this.client = !remoteClientHandler ? new OpenAI({
       baseURL: "https://api.groq.com/openai/v1",
       apiKey: clientOptions?.apiKey || process.env.GROQ_API_KEY,
       ...clientOptions,
-    });
+    }) : null;
 
     this.cache = cache;
     this.enableCaching = enableCaching;
@@ -114,8 +120,8 @@ export class GroqClient extends LLMClient {
           typeof msg.content === "string"
             ? msg.content
             : Array.isArray(msg.content) &&
-                msg.content.length > 0 &&
-                "text" in msg.content[0]
+              msg.content.length > 0 &&
+              "text" in msg.content[0]
               ? msg.content[0].text
               : "",
       };
@@ -172,26 +178,40 @@ export class GroqClient extends LLMClient {
     }
 
     try {
-      // Use OpenAI client with Groq API
-      const apiResponse = await this.client.chat.completions.create({
+      const body = {
         model: this.modelName.split("groq-")[1],
         messages: [
           ...formattedMessages,
           // Add explicit instruction to return JSON if we have a response model
           ...(options.response_model
             ? [
-                {
-                  role: "system" as const,
-                  content: `IMPORTANT: Your response must be valid JSON that matches this schema: ${JSON.stringify(options.response_model.schema)}`,
-                },
-              ]
+              {
+                role: "system" as const,
+                content: `IMPORTANT: Your response must be valid JSON that matches this schema: ${JSON.stringify(options.response_model.schema)}`,
+              },
+            ]
             : []),
         ],
         temperature: options.temperature || 0.7,
         max_tokens: options.maxTokens,
         tools: tools,
         tool_choice: options.tool_choice || "auto",
-      });
+      };
+
+      let apiResponse;
+      if (this.remoteClientHandler) {
+        apiResponse = await this.remoteClientHandler('openai', {
+          clientOptions: {
+            baseURL: "https://api.groq.com/openai/v1",
+            apiKey: this.clientOptions?.apiKey || process.env.GROQ_API_KEY,
+            ...this.clientOptions,
+          },
+          body
+        });
+      } else {
+        // Use OpenAI client with Groq API
+        apiResponse = await this.client.chat.completions.create(body);
+      }
 
       // Format the response to match the expected LLMResponse format
       const response: LLMResponse = {

@@ -346,7 +346,10 @@ export class OpenAIClient extends LLMClient {
 
     let response;
     if (this.remoteClientHandler) {
-      response = await this.remoteClientHandler(this.clientOptions, body);
+      response = await this.remoteClientHandler('openai', {
+        clientOptions: this.clientOptions,
+        body
+      });
     } else {
       response = await this.client.chat.completions.create(body);
     }

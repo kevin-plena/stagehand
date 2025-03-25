@@ -9,6 +9,7 @@ import {
   ResponseItem,
   ComputerCallItem,
   FunctionCallItem,
+  RemoteAgentClientHandler,
 } from "@/types/agent";
 import { AgentClient } from "./AgentClient";
 
@@ -28,12 +29,14 @@ export class OpenAICUAClient extends AgentClient {
   private actionHandler?: (action: AgentAction) => Promise<void>;
   private reasoningItems: Map<string, ResponseItem> = new Map();
   private environment: string = "browser"; // "browser", "mac", "windows", or "ubuntu"
+  private remoteAgentClientHandler: RemoteAgentClientHandler;
 
   constructor(
     type: AgentType,
     modelName: string,
     userProvidedInstructions?: string,
     clientOptions?: Record<string, unknown>,
+    remoteAgentClientHandler?: RemoteAgentClientHandler,
   ) {
     super(type, modelName, userProvidedInstructions);
 
@@ -56,8 +59,9 @@ export class OpenAICUAClient extends AgentClient {
       apiKey: this.apiKey,
     };
 
+    this.remoteAgentClientHandler = remoteAgentClientHandler;
     // Initialize the OpenAI client
-    this.client = new OpenAI(this.clientOptions);
+    this.client = !remoteAgentClientHandler ? new OpenAI(this.clientOptions) : null;
   }
 
   setViewport(width: number, height: number): void {
@@ -312,9 +316,17 @@ export class OpenAICUAClient extends AgentClient {
         requestParams.previous_response_id = previousResponseId;
       }
 
-      // Create the response using the OpenAI Responses API
-      // @ts-expect-error - Force type to match what the OpenAI SDK expects
-      const response = await this.client.responses.create(requestParams);
+      let response;
+      if (this.remoteAgentClientHandler) {
+        response = await this.remoteAgentClientHandler('openai', {
+          clientOptions: this.clientOptions,
+          body: requestParams
+        });
+      } else {
+        // Create the response using the OpenAI Responses API
+        // @ts-expect-error - Force type to match what the OpenAI SDK expects
+        response = await this.client.responses.create(requestParams);
+      }
 
       // Store the response ID for future use
       this.lastResponseId = response.id;

@@ -10,6 +10,7 @@ import {
   AnthropicContentBlock,
   AnthropicTextBlock,
   AnthropicToolResult,
+  RemoteAgentClientHandler,
 } from "@/types/agent";
 import { AgentClient } from "./AgentClient";
 
@@ -29,12 +30,14 @@ export class AnthropicCUAClient extends AgentClient {
   private screenshotProvider?: () => Promise<string>;
   private actionHandler?: (action: AgentAction) => Promise<void>;
   private thinkingBudget: number | null = null;
+  private remoteAgentClientHandler?: RemoteAgentClientHandler;
 
   constructor(
     type: AgentType,
     modelName: string,
     userProvidedInstructions?: string,
     clientOptions?: Record<string, unknown>,
+    remoteAgentClientHandler?: RemoteAgentClientHandler,
   ) {
     super(type, modelName, userProvidedInstructions);
 
@@ -60,8 +63,9 @@ export class AnthropicCUAClient extends AgentClient {
       this.clientOptions.baseUrl = this.baseURL;
     }
 
+    this.remoteAgentClientHandler = remoteAgentClientHandler;
     // Initialize the Anthropic client
-    this.client = new Anthropic(this.clientOptions);
+    this.client = !remoteAgentClientHandler ? new Anthropic(this.clientOptions) : null;
   }
 
   setViewport(width: number, height: number): void {
@@ -433,9 +437,18 @@ export class AnthropicCUAClient extends AgentClient {
         );
       }
 
-      // Create the message using the Anthropic Messages API
-      // @ts-expect-error - The Anthropic SDK types are stricter than what we need
-      const response = await this.client.beta.messages.create(requestParams);
+      let response;
+      if (this.remoteAgentClientHandler) {
+        response = await this.remoteAgentClientHandler('anthropic', {
+          clientOptions: this.clientOptions,
+          body: requestParams
+        });
+      } else {
+        // Create the message using the Anthropic Messages API
+        // @ts-expect-error - The Anthropic SDK types are stricter than what we need
+        response = await this.client.beta.messages.create(requestParams);
+      }
+
 
       // Store the message ID for future use
       this.lastMessageId = response.id;

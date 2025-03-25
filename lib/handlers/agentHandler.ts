@@ -36,6 +36,7 @@ export class StagehandAgentHandler {
       options.modelName,
       options.clientOptions || {},
       options.userProvidedInstructions,
+      options.remoteAgentClientHandler
     );
 
     // Store the client

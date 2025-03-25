@@ -6,13 +6,22 @@ import { LogLine } from "./log";
 import { AvailableModel, ClientOptions } from "./model";
 import { LLMClient } from "../lib/llm/LLMClient";
 import { Cookie, type Page as PlaywrightPage } from "@playwright/test";
-import { AgentProviderType } from "./agent";
+import { AgentProviderType, RemoteAgentClientHandler } from "./agent";
 import OpenAI from "openai";
 import { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat";
+import type Anthropic from "@anthropic-ai/sdk";
+import { APIPromise } from "@anthropic-ai/sdk/core";
 
-export type RemoteClientHandler = (clientOptions: ClientOptions, body: ChatCompletionCreateParamsNonStreaming) => Promise<OpenAI.Chat.Completions.ChatCompletion & {
-  _request_id?: string | null;
-}>;
+export type RemoteClientHandler = <T extends "openai" | "anthropic">(provider: T, providerOptions: {
+  clientOptions: ClientOptions;
+  body: T extends "openai"
+  ? ChatCompletionCreateParamsNonStreaming
+  : Anthropic.Messages.MessageCreateParamsNonStreaming;
+}) => Promise<
+  T extends "openai"
+  ? OpenAI.Chat.Completions.ChatCompletion & { _request_id?: string | null }
+  : APIPromise<Anthropic.Messages.Message>
+>;
 
 export interface ConstructorParams {
   env: "LOCAL" | "BROWSERBASE";
@@ -250,6 +259,10 @@ export interface AgentConfig {
    * Additional options to pass to the agent client
    */
   options?: Record<string, unknown>;
+  /**
+   * Optional handler for remote agent client requests
+   */
+  remoteAgentClientHandler?: RemoteAgentClientHandler;
 }
 
 export enum StagehandFunctionName {

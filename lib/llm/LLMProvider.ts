@@ -88,6 +88,7 @@ export class LLMProvider {
           cache: this.cache,
           modelName,
           clientOptions,
+          remoteClientHandler
         });
       case "cerebras":
         return new CerebrasClient({
@@ -96,6 +97,7 @@ export class LLMProvider {
           cache: this.cache,
           modelName,
           clientOptions,
+          remoteClientHandler
         });
       case "groq":
         return new GroqClient({
@@ -104,6 +106,7 @@ export class LLMProvider {
           cache: this.cache,
           modelName,
           clientOptions,
+          remoteClientHandler
         });
       default:
         throw new Error(`Unsupported provider: ${provider}`);

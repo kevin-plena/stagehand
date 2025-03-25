@@ -14,6 +14,7 @@ import {
   LLMClient,
   LLMResponse,
 } from "./LLMClient";
+import type { RemoteClientHandler } from "@/types/stagehand";
 
 export class AnthropicClient extends LLMClient {
   public type = "anthropic" as const;
@@ -21,6 +22,7 @@ export class AnthropicClient extends LLMClient {
   private cache: LLMCache | undefined;
   private enableCaching: boolean;
   public clientOptions: ClientOptions;
+  private remoteClientHandler?: RemoteClientHandler;
 
   constructor({
     enableCaching = false,
@@ -28,6 +30,7 @@ export class AnthropicClient extends LLMClient {
     modelName,
     clientOptions,
     userProvidedInstructions,
+    remoteClientHandler
   }: {
     logger: (message: LogLine) => void;
     enableCaching?: boolean;
@@ -35,9 +38,10 @@ export class AnthropicClient extends LLMClient {
     modelName: AvailableModel;
     clientOptions?: ClientOptions;
     userProvidedInstructions?: string;
+    remoteClientHandler?: RemoteClientHandler;
   }) {
     super(modelName);
-    this.client = new Anthropic(clientOptions);
+    this.client = !remoteClientHandler ? new Anthropic(clientOptions) : null;
     this.cache = cache;
     this.enableCaching = enableCaching;
     this.modelName = modelName;
@@ -226,7 +230,7 @@ export class AnthropicClient extends LLMClient {
       anthropicTools.push(toolDefinition);
     }
 
-    const response = await this.client.messages.create({
+    const body = {
       model: this.modelName,
       max_tokens: options.maxTokens || 8192,
       messages: formattedMessages,
@@ -235,7 +239,17 @@ export class AnthropicClient extends LLMClient {
         ? (systemMessage.content as string | TextBlockParam[]) // we can cast because we already filtered out image content
         : undefined,
       temperature: options.temperature,
-    });
+    };
+
+    let response;
+    if (this.remoteClientHandler) {
+      response = await this.remoteClientHandler('anthropic', {
+        clientOptions: this.clientOptions,
+        body
+      });
+    } else {
+      response = await this.client.messages.create(body);
+    }
 
     logger({
       category: "anthropic",

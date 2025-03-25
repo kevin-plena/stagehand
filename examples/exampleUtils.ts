@@ -5,6 +5,7 @@ import os from "os";
 import { LocalBrowserLaunchOptions } from "@/types/stagehand";
 import OpenAI, { ClientOptions } from "openai";
 import { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat";
+import Anthropic from "@anthropic-ai/sdk";
 
 export const getContextPath = (
   localBrowserLaunchOptions: LocalBrowserLaunchOptions,
@@ -78,17 +79,63 @@ export const initCdpBrowser = async () => {
   return { browser, context };
 };
 
-export const remoteClientHandler = async (clientOptions: ClientOptions, body: ChatCompletionCreateParamsNonStreaming) => {
+export const remoteClientHandler = async (provider: string, providerOptions: {
+  clientOptions: ClientOptions;
+  body: ChatCompletionCreateParamsNonStreaming;
+}) => {
   // For making OpenAI API requests to a backend server.
   // For now, we will simply use the client here in this example.
-  const client = new OpenAI({
-    ...clientOptions,
-    apiKey: process.env.DETACHED_API_KEY
-  });
 
-  const response = await client.chat.completions.create(body);
+  if (provider === "openai") {
+    const client = new OpenAI({
+      ...providerOptions.clientOptions,
+      apiKey: process.env.DETACHED_API_KEY
+    });
 
-  return response;
+    const response = await client.chat.completions.create(providerOptions.body);
+
+    return response;
+  } else if (provider === "anthropic") {
+    // Anthropic API request
+    const client = new Anthropic(providerOptions.clientOptions);
+
+    // @ts-expect-error - The Anthropic SDK types are stricter than what we need
+    const response = await client.messages.create(providerOptions.body);
+
+    return response;
+  } else {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
+}
+
+export const remoteAgentClientHandler = async <T extends "openai" | "anthropic">(provider: T, providerOptions: {
+  clientOptions: ClientOptions;
+  body: Record<string, unknown>;
+}) => {
+  // For making OpenAI API requests to a backend server.
+  // For now, we will simply use the client here in this example.
+
+  if (provider === "openai") {
+    const client = new OpenAI({
+      ...providerOptions.clientOptions,
+      apiKey: process.env.DETACHED_API_KEY
+    });
+
+    // @ts-expect-error - Force type to match what the OpenAI SDK expects
+    const response = await client.responses.create(providerOptions.body);
+
+    return response;
+  } else if (provider === "anthropic") {
+    // Anthropic API request
+    const client = new Anthropic(providerOptions.clientOptions);
+
+    // @ts-expect-error - The Anthropic SDK types are stricter than what we need
+    const response = await client.beta.messages.create(providerOptions.body);
+
+    return response;
+  } else {
+    throw new Error(`Unknown provider: ${provider}`);
+  }
 }
 
 export const setPageViewportSize = (page: PlaywrightPage) => {
