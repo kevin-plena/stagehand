@@ -211,3 +211,158 @@ export const extractJson = async (text: string) => {
 
   return null;
 };
+
+export const openAiWebSearch = async (query: string) => {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const response = await openai.responses.create({
+    model: 'gpt-4o-mini',
+    input: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: query
+          }
+        ]
+      },
+    ],
+    text: {
+      format: {
+        // type: 'json_object'
+        type: 'text'
+      }
+    },
+    tools: [
+      {
+        type: 'web_search_preview',
+        user_location: {
+          type: 'approximate',
+          country: 'US'
+        },
+        search_context_size: 'medium'
+      }
+    ],
+    tool_choice: {
+      type: 'web_search_preview'
+    },
+    temperature: 0.5,
+    max_output_tokens: 2048,
+    top_p: 1,
+    store: false
+  });
+
+  const promptResults = response.output_text;
+
+  if (!promptResults) {
+    throw new Error(`openAiWebSearch did not return any results.`);
+  }
+
+  const parsedResults = await extractJson(promptResults);
+
+  return parsedResults;
+};
+
+export const openAiPrompt = async (systemMessage: string, query: string) => {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+
+  const response = await openai.chat.completions.create({
+    messages: [
+      {
+        role: 'system',
+        content: systemMessage
+      },
+      {
+        role: 'user',
+        content: query
+      }
+    ],
+    model: 'gpt-4o',
+    temperature: 0.5,
+    response_format: {
+      type: 'json_object'
+    }
+  });
+
+  const promptResults = response.choices[0].message.content;
+
+  if (!promptResults) {
+    throw new Error(`openAiPrompt did not return any results.`);
+  }
+
+  const parsedResults = await extractJson(promptResults);
+
+  return parsedResults;
+};
+
+export const classifyEntity = async (promptVariables: { state: string; entityData: string; registeredName: string; }) => {
+  const prompt = `
+  Provided below are the following:
+  - State business registration entity information for the state of ${promptVariables.state}
+  - Registered name for the entity
+
+  Your job is to verify if the registered name is an individual, from same entity business, or a separate registration service company.
+  - Classify the registered name as one of the following labels: "individual", "related-entity", "registration-service".
+  - Search the web to find evidence of the registered name being one of the labels. Ensure that the web scrape data has results related to the registered name.
+  - If the registered name is the name is incomplete (e.g. "INC"), set the label to "unknown".
+  - If the registered name can be clearly interpreted as an individual's name (i.e. it is a common name), there is no need to rely on the web scrape data. Set the label to "individual". 
+  - If the web scrape data does not provided sufficient or related data to the registered name and state registration data, and it is an entity that cannot be distinguished from a registration service, set the label to "unknown".
+
+  State Registration Entity Data:  
+  ${promptVariables.entityData}
+
+  Entity registered name:  
+  ${promptVariables.registeredName}
+
+  Respond in strictly the following json format below and do not include script tags:  
+
+  {
+    "registered_name": "{{Registered name for the entity}}",
+    "label": "{{Set as one of the above classification labels}}"
+  }
+  `;
+
+  const result = await openAiWebSearch(prompt);
+
+  return result;
+};
+
+export const validateEntity = async (promptVariables: { state: string; registrationData: string; businessData: string; }) => {
+  const prompt = `
+  Provided below are results for business state registration data, for the state of ${promptVariables.state}.
+  Also provided, is the business information used to query for the state registration data.
+  Your job is to compare the two sets of data and validate the state registration data to ensure that it accurately matches the business data.
+
+  Validation considerations:
+  - Ideally we want an entity with the exact company name, but allow some slack if the company appears to match otherwise.
+  - Do not match with holdings companies, subsidiary investment companies, or parent companies.
+  - Allow DBA registrations.
+  - Aim for an exact address match, but allow for minor differences like building/suite numbers.
+  - Attempt to discern if industry/category is a likely match.
+  - Use any other details to validate the match as needed.
+
+  State Registration Data:  
+  ${promptVariables.registrationData}
+
+  Business Data:  
+  ${promptVariables.businessData}
+
+
+  Respond in strictly the following json format below and do not include script tags:  
+  {
+    "is_valid": {{true | false}},
+    "entity_number": "{{State Registration Entity Number}}"
+  }
+  `;
+
+  const systemMessage = 'You are an AI assistant that helps identify the correct business entity for a given company.';
+
+  const result = await openAiPrompt(systemMessage, prompt);
+
+  return result;
+};
