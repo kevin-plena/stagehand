@@ -35,8 +35,6 @@ export declare class StagehandPage {
     get page(): Page;
     get context(): EnhancedContext;
     _waitForSettledDom(timeoutMs?: number): Promise<void>;
-    startDomDebug(): Promise<void>;
-    cleanupDomDebug(): Promise<void>;
     act(actionOrOptions: string | ActOptions | ObserveResult): Promise<ActResult>;
     extract<T extends z.AnyZodObject = typeof defaultExtractSchema>(instructionOrOptions?: string | ExtractOptions<T>): Promise<ExtractResult<T>>;
     observe(instructionOrOptions?: string | ObserveOptions): Promise<ObserveResult[]>;

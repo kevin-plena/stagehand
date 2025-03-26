@@ -4,12 +4,14 @@ import { LLMProvider } from "../llm/LLMProvider";
 import { StagehandContext } from "../StagehandContext";
 import { StagehandPage } from "../StagehandPage";
 import { ActResult, ObserveResult, ActOptions } from "@/types/stagehand";
+import { Stagehand } from "@/lib";
 /**
  * NOTE: Vision support has been removed from this version of Stagehand.
  * If useVision or verifierUseVision is set to true, a warning is logged and
  * the flow continues as if vision = false.
  */
 export declare class StagehandActHandler {
+    private readonly stagehand;
     private readonly stagehandPage;
     private readonly verbose;
     private readonly llmProvider;
@@ -20,7 +22,8 @@ export declare class StagehandActHandler {
     private readonly userProvidedInstructions?;
     private readonly selfHeal;
     private readonly waitForCaptchaSolves;
-    constructor({ verbose, llmProvider, enableCaching, logger, stagehandPage, userProvidedInstructions, selfHeal, waitForCaptchaSolves, }: {
+    constructor({ stagehand, verbose, llmProvider, enableCaching, logger, stagehandPage, userProvidedInstructions, selfHeal, waitForCaptchaSolves, }: {
+        stagehand: Stagehand;
         verbose: 0 | 1 | 2;
         llmProvider: LLMProvider;
         enableCaching: boolean;
@@ -46,6 +49,7 @@ export declare class StagehandActHandler {
     private _verifyActionCompletion;
     private _performPlaywrightMethod;
     private _getComponentString;
+    private handlePossiblePageNavigation;
     act({ action, steps, chunksSeen, llmClient, retries, requestId, variables, previousSelectors, skipActionCacheForThisStep, domSettleTimeoutMs, timeoutMs, startTime, }: {
         action: string;
         steps?: string;

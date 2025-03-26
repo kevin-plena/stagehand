@@ -1,9 +1,10 @@
 import { z, ZodType } from 'zod';
 import { Cookie, Page as Page$1, BrowserContext as BrowserContext$1, Browser as Browser$1, CDPSession } from '@playwright/test';
 import Browserbase from '@browserbasehq/sdk';
-import { ClientOptions as ClientOptions$2 } from '@anthropic-ai/sdk';
+import Anthropic, { ClientOptions as ClientOptions$2 } from '@anthropic-ai/sdk';
 import OpenAI, { ClientOptions as ClientOptions$1 } from 'openai';
 import { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat';
+import { APIPromise } from '@anthropic-ai/sdk/core';
 
 type LogLine = {
     id?: string;
@@ -18,6 +19,7 @@ type LogLine = {
         };
     };
 };
+type Logger = (logLine: LogLine) => void;
 
 declare const AvailableModelSchema: z.ZodEnum<["gpt-4o", "gpt-4o-mini", "gpt-4o-2024-08-06", "gpt-4.5-preview", "claude-3-5-sonnet-latest", "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620", "claude-3-7-sonnet-latest", "claude-3-7-sonnet-20250219", "o1-mini", "o1-preview", "o3-mini", "cerebras-llama-3.3-70b", "cerebras-llama-3.1-8b", "groq-llama-3.3-70b-versatile", "groq-llama-3.3-70b-specdec"]>;
 type AvailableModel = z.infer<typeof AvailableModelSchema>;
@@ -47,11 +49,16 @@ interface ChatMessage {
 }
 type ChatMessageContent = string | (ChatMessageImageContent | ChatMessageTextContent)[];
 interface ChatMessageImageContent {
-    type: "image_url";
-    image_url: {
+    type: string;
+    image_url?: {
         url: string;
     };
     text?: string;
+    source?: {
+        type: string;
+        media_type: string;
+        data: string;
+    };
 }
 interface ChatMessageTextContent {
     type: string;
@@ -116,7 +123,9 @@ declare abstract class LLMClient {
     clientOptions: ClientOptions;
     userProvidedInstructions?: string;
     constructor(modelName: AvailableModel, userProvidedInstructions?: string);
-    abstract createChatCompletion<T = LLMResponse>(options: CreateChatCompletionOptions): Promise<T>;
+    abstract createChatCompletion<T = LLMResponse & {
+        usage?: LLMResponse["usage"];
+    }>(options: CreateChatCompletionOptions): Promise<T>;
 }
 
 declare class LLMProvider {
@@ -129,14 +138,140 @@ declare class LLMProvider {
     static getModelProvider(modelName: AvailableModel): ModelProvider;
 }
 
-type RemoteClientHandler = (clientOptions: ClientOptions, body: ChatCompletionCreateParamsNonStreaming) => Promise<OpenAI.Chat.Completions.ChatCompletion & {
+type RemoteAgentClientHandler = <T extends "openai" | "anthropic">(provider: T, providerOptions: {
+    clientOptions: ClientOptions;
+    body: Record<string, unknown>;
+}) => Promise<any>;
+interface AgentAction {
+    type: string;
+    [key: string]: unknown;
+}
+interface AgentResult {
+    success: boolean;
+    message: string;
+    actions: AgentAction[];
+    completed: boolean;
+    metadata?: Record<string, unknown>;
+}
+interface AgentOptions {
+    maxSteps?: number;
+    autoScreenshot?: boolean;
+    waitBetweenActions?: number;
+    waitBetweenSteps?: number;
+    context?: string;
+}
+interface AgentExecuteOptions extends AgentOptions {
+    instruction: string;
+}
+type AgentProviderType = "openai" | "anthropic";
+interface AgentClientOptions {
+    apiKey: string;
+    organization?: string;
+    baseURL?: string;
+    defaultMaxSteps?: number;
+    [key: string]: unknown;
+}
+type AgentType = "openai" | "anthropic";
+interface AgentExecutionOptions {
+    options: AgentExecuteOptions;
+    logger: (message: LogLine) => void;
+    retries?: number;
+}
+interface AgentHandlerOptions {
+    modelName: string;
+    clientOptions?: Record<string, unknown>;
+    userProvidedInstructions?: string;
+    agentType: AgentType;
+    remoteAgentClientHandler?: RemoteAgentClientHandler;
+}
+interface ActionExecutionResult {
+    success: boolean;
+    error?: string;
+    data?: unknown;
+}
+interface ToolUseItem extends ResponseItem {
+    type: "tool_use";
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+}
+interface AnthropicMessage {
+    role: string;
+    content: string | Array<AnthropicContentBlock>;
+}
+interface AnthropicContentBlock {
+    type: string;
+    [key: string]: unknown;
+}
+interface AnthropicTextBlock extends AnthropicContentBlock {
+    type: "text";
+    text: string;
+}
+interface AnthropicToolResult {
+    type: "tool_result";
+    tool_use_id: string;
+    content: string | Array<AnthropicContentBlock>;
+}
+interface ResponseItem {
+    type: string;
+    id: string;
+    [key: string]: unknown;
+}
+interface ComputerCallItem extends ResponseItem {
+    type: "computer_call";
+    call_id: string;
+    action: {
+        type: string;
+        [key: string]: unknown;
+    };
+    pending_safety_checks?: Array<{
+        id: string;
+        code: string;
+        message: string;
+    }>;
+}
+interface FunctionCallItem extends ResponseItem {
+    type: "function_call";
+    call_id: string;
+    name: string;
+    arguments: string;
+}
+type ResponseInputItem = {
+    role: string;
+    content: string;
+} | {
+    type: "computer_call_output";
+    call_id: string;
+    output: {
+        type: "input_image";
+        image_url: string;
+        current_url?: string;
+        error?: string;
+        [key: string]: unknown;
+    } | string;
+    acknowledged_safety_checks?: Array<{
+        id: string;
+        code: string;
+        message: string;
+    }>;
+} | {
+    type: "function_call_output";
+    call_id: string;
+    output: string;
+};
+
+type RemoteClientHandler = <T extends "openai" | "anthropic">(provider: T, providerOptions: {
+    clientOptions: ClientOptions;
+    body: T extends "openai" ? ChatCompletionCreateParamsNonStreaming : Anthropic.Messages.MessageCreateParamsNonStreaming;
+}) => Promise<T extends "openai" ? OpenAI.Chat.Completions.ChatCompletion & {
     _request_id?: string | null;
-}>;
+} : APIPromise<Anthropic.Messages.Message>>;
 interface ConstructorParams {
     env: "LOCAL" | "BROWSERBASE";
     apiKey?: string;
     projectId?: string;
     verbose?: 0 | 1 | 2;
+    /** @deprecated Dom Debugging is no longer supported in this version of Stagehand. */
     debugDom?: boolean;
     llmProvider?: LLMProvider;
     /** @deprecated Please use `localBrowserLaunchOptions` instead. That will override this. */
@@ -173,6 +308,7 @@ interface ConstructorParams {
     };
     remoteClientHandler?: RemoteClientHandler;
     actTimeoutMs?: number;
+    logInferenceToFile?: boolean;
 }
 interface InitOptions {
     /** @deprecated Pass this into the Stagehand constructor instead. This will be removed in the next major version. */
@@ -220,8 +356,8 @@ interface ActResult {
     action: string;
 }
 interface ExtractOptions<T extends z.AnyZodObject> {
-    instruction: string;
-    schema: T;
+    instruction?: string;
+    schema?: T;
     modelName?: AvailableModel;
     modelClientOptions?: ClientOptions;
     domSettleTimeoutMs?: number;
@@ -303,6 +439,78 @@ interface LocalBrowserLaunchOptions {
     bypassCSP?: boolean;
     cookies?: Cookie[];
 }
+interface StagehandMetrics {
+    actPromptTokens: number;
+    actCompletionTokens: number;
+    actInferenceTimeMs: number;
+    extractPromptTokens: number;
+    extractCompletionTokens: number;
+    extractInferenceTimeMs: number;
+    observePromptTokens: number;
+    observeCompletionTokens: number;
+    observeInferenceTimeMs: number;
+    totalPromptTokens: number;
+    totalCompletionTokens: number;
+    totalInferenceTimeMs: number;
+}
+/**
+ * Options for executing a task with an agent
+ */
+interface AgentExecuteParams {
+    /**
+     * The instruction to execute with the agent
+     */
+    instruction: string;
+    /**
+     * Maximum number of steps the agent can take to complete the task
+     * @default 10
+     */
+    maxSteps?: number;
+    /**
+     * Take a screenshot automatically before each agent step
+     * @default true
+     */
+    autoScreenshot?: boolean;
+    /**
+     * Wait time in milliseconds between agent actions
+     * @default 0
+     */
+    waitBetweenActions?: number;
+    /**
+     * Additional context to provide to the agent
+     */
+    context?: string;
+}
+/**
+ * Configuration for agent functionality
+ */
+interface AgentConfig {
+    /**
+     * The provider to use for agent functionality
+     */
+    provider?: AgentProviderType;
+    /**
+     * The model to use for agent functionality
+     */
+    model?: string;
+    /**
+     * Custom instructions to provide to the agent
+     */
+    instructions?: string;
+    /**
+     * Additional options to pass to the agent client
+     */
+    options?: Record<string, unknown>;
+    /**
+     * Optional handler for remote agent client requests
+     */
+    remoteAgentClientHandler?: RemoteAgentClientHandler;
+}
+declare enum StagehandFunctionName {
+    ACT = "ACT",
+    EXTRACT = "EXTRACT",
+    OBSERVE = "OBSERVE"
+}
 
 declare const defaultExtractSchema: z.ZodObject<{
     extraction: z.ZodString;
@@ -353,6 +561,9 @@ interface StartSessionParams {
     debugDom: boolean;
     systemPrompt?: string;
     browserbaseSessionCreateParams?: Browserbase.Sessions.SessionCreateParams;
+    selfHeal?: boolean;
+    waitForCaptchaSolves?: boolean;
+    actionTimeoutMs?: number;
 }
 interface StartSessionResult {
     sessionId: string;
@@ -376,11 +587,12 @@ declare class StagehandAPI {
     private sessionId?;
     private logger;
     constructor({ apiKey, projectId, logger }: StagehandAPIConstructorParams);
-    init({ modelName, modelApiKey, domSettleTimeoutMs, verbose, debugDom, systemPrompt, browserbaseSessionCreateParams, }: StartSessionParams): Promise<StartSessionResult>;
+    init({ modelName, modelApiKey, domSettleTimeoutMs, verbose, debugDom, systemPrompt, selfHeal, waitForCaptchaSolves, actionTimeoutMs, browserbaseSessionCreateParams, }: StartSessionParams): Promise<StartSessionResult>;
     act(options: ActOptions): Promise<ActResult>;
     extract<T extends z.AnyZodObject>(options: ExtractOptions<T>): Promise<ExtractResult<T>>;
     observe(options?: ObserveOptions): Promise<ObserveResult[]>;
     goto(url: string, options?: GotoOptions): Promise<void>;
+    agentExecute(agentConfig: AgentConfig, executeOptions: AgentExecuteOptions): Promise<AgentResult>;
     end(): Promise<Response>;
     private execute;
     private request;
@@ -429,8 +641,6 @@ declare class StagehandPage {
     get page(): Page;
     get context(): EnhancedContext;
     _waitForSettledDom(timeoutMs?: number): Promise<void>;
-    startDomDebug(): Promise<void>;
-    cleanupDomDebug(): Promise<void>;
     act(actionOrOptions: string | ActOptions | ObserveResult): Promise<ActResult>;
     extract<T extends z.AnyZodObject = typeof defaultExtractSchema>(instructionOrOptions?: string | ExtractOptions<T>): Promise<ExtractResult<T>>;
     observe(instructionOrOptions?: string | ObserveOptions): Promise<ObserveResult[]>;
@@ -449,6 +659,32 @@ interface BrowserResult {
     contextPath?: string;
     sessionId?: string;
 }
+
+declare const operatorResponseSchema: z.ZodObject<{
+    reasoning: z.ZodString;
+    method: z.ZodEnum<["act", "extract", "goto", "close", "wait", "navback", "refresh"]>;
+    parameters: z.ZodOptional<z.ZodString>;
+    taskComplete: z.ZodBoolean;
+}, "strip", z.ZodTypeAny, {
+    method?: "close" | "goto" | "act" | "extract" | "wait" | "navback" | "refresh";
+    reasoning?: string;
+    parameters?: string;
+    taskComplete?: boolean;
+}, {
+    method?: "close" | "goto" | "act" | "extract" | "wait" | "navback" | "refresh";
+    reasoning?: string;
+    parameters?: string;
+    taskComplete?: boolean;
+}>;
+type OperatorResponse = z.infer<typeof operatorResponseSchema>;
+declare const operatorSummarySchema: z.ZodObject<{
+    answer: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    answer?: string;
+}, {
+    answer?: string;
+}>;
+type OperatorSummary = z.infer<typeof operatorSummarySchema>;
 
 declare function applyStealthScripts(context: BrowserContext): Promise<void>;
 declare class Stagehand {
@@ -480,10 +716,15 @@ declare class Stagehand {
     readonly selfHeal: boolean;
     private cleanupCalled;
     readonly actTimeoutMs: number;
+    readonly logInferenceToFile?: boolean;
     protected setActivePage(page: StagehandPage): void;
     get page(): Page;
     private browserContext?;
-    constructor({ env, apiKey, projectId, verbose, debugDom, llmProvider, llmClient, headless, logger, browserbaseSessionCreateParams, domSettleTimeoutMs, enableCaching, browserbaseSessionID, modelName, modelClientOptions, systemPrompt, useAPI, localBrowserLaunchOptions, selfHeal, waitForCaptchaSolves, browserContext, remoteClientHandler, actTimeoutMs, }?: ConstructorParams);
+    stagehandMetrics: StagehandMetrics;
+    get metrics(): StagehandMetrics;
+    updateMetrics(functionName: StagehandFunctionName, promptTokens: number, completionTokens: number, inferenceTimeMs: number): void;
+    private updateTotalMetrics;
+    constructor({ env, apiKey, projectId, verbose, debugDom, llmProvider, llmClient, headless, logger, browserbaseSessionCreateParams, domSettleTimeoutMs, enableCaching, browserbaseSessionID, modelName, modelClientOptions, systemPrompt, useAPI, localBrowserLaunchOptions, selfHeal, waitForCaptchaSolves, browserContext, remoteClientHandler, actTimeoutMs, logInferenceToFile, }?: ConstructorParams);
     private registerSignalHandlers;
     get logger(): (logLine: LogLine) => void;
     get env(): "LOCAL" | "BROWSERBASE";
@@ -505,6 +746,13 @@ declare class Stagehand {
     /** @deprecated Use stagehand.page.observe() instead. This will be removed in the next major release. */
     observe(options?: ObserveOptions): Promise<ObserveResult[]>;
     close(): Promise<void>;
+    /**
+     * Create an agent instance that can be executed with different instructions
+     * @returns An agent instance with execute() method
+     */
+    agent(options?: AgentConfig): {
+        execute: (instructionOrOptions: string | AgentExecuteOptions) => Promise<AgentResult>;
+    };
 }
 
-export { type ActOptions, type ActResult, AnnotatedScreenshotText, type AnthropicJsonSchemaObject, type AvailableModel, AvailableModelSchema, type Browser, type BrowserContext, type BrowserResult, type ChatCompletionOptions, type ChatMessage, type ChatMessageContent, type ChatMessageImageContent, type ChatMessageTextContent, type ClientOptions, type ConstructorParams, type CreateChatCompletionOptions, type ExtractOptions, type ExtractResult, type GotoOptions, type InitFromPageOptions, type InitFromPageResult, type InitOptions, type InitResult, LLMClient, type LLMResponse, type LocalBrowserLaunchOptions, type LogLine, type ModelProvider, type ObserveOptions, type ObserveResult, type Page, PlaywrightCommandException, PlaywrightCommandMethodNotSupportedException, type RemoteClientHandler, Stagehand, applyStealthScripts, defaultExtractSchema, pageTextSchema };
+export { type ActOptions, type ActResult, type ActionExecutionResult, type AgentAction, type AgentClientOptions, type AgentConfig, type AgentExecuteOptions, type AgentExecuteParams, type AgentExecutionOptions, type AgentHandlerOptions, type AgentOptions, type AgentProviderType, type AgentResult, type AgentType, AnnotatedScreenshotText, type AnthropicContentBlock, type AnthropicJsonSchemaObject, type AnthropicMessage, type AnthropicTextBlock, type AnthropicToolResult, type AvailableModel, AvailableModelSchema, type Browser, type BrowserContext, type BrowserResult, type ChatCompletionOptions, type ChatMessage, type ChatMessageContent, type ChatMessageImageContent, type ChatMessageTextContent, type ClientOptions, type ComputerCallItem, type ConstructorParams, type CreateChatCompletionOptions, type ExtractOptions, type ExtractResult, type FunctionCallItem, type GotoOptions, type InitFromPageOptions, type InitFromPageResult, type InitOptions, type InitResult, LLMClient, type LLMResponse, type LocalBrowserLaunchOptions, type LogLine, type Logger, type ModelProvider, type ObserveOptions, type ObserveResult, type OperatorResponse, type OperatorSummary, type Page, PlaywrightCommandException, PlaywrightCommandMethodNotSupportedException, type RemoteAgentClientHandler, type RemoteClientHandler, type ResponseInputItem, type ResponseItem, Stagehand, StagehandFunctionName, type StagehandMetrics, type ToolUseItem, applyStealthScripts, defaultExtractSchema, operatorResponseSchema, operatorSummarySchema, pageTextSchema };

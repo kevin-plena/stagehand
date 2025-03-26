@@ -85,19 +85,30 @@ __export(index_exports, {
   LLMClient: () => LLMClient,
   PlaywrightCommandException: () => PlaywrightCommandException,
   PlaywrightCommandMethodNotSupportedException: () => PlaywrightCommandMethodNotSupportedException,
-  Stagehand: () => Stagehand,
+  Stagehand: () => Stagehand3,
+  StagehandFunctionName: () => StagehandFunctionName,
   applyStealthScripts: () => applyStealthScripts,
   defaultExtractSchema: () => defaultExtractSchema,
+  operatorResponseSchema: () => operatorResponseSchema,
+  operatorSummarySchema: () => operatorSummarySchema,
   pageTextSchema: () => pageTextSchema
 });
 module.exports = __toCommonJS(index_exports);
-var import_sdk3 = require("@browserbasehq/sdk");
+var import_sdk4 = require("@browserbasehq/sdk");
 var import_test2 = require("@playwright/test");
 var import_crypto2 = require("crypto");
 var import_dotenv = __toESM(require("dotenv"));
-var import_fs = __toESM(require("fs"));
+var import_fs2 = __toESM(require("fs"));
 var import_os = __toESM(require("os"));
-var import_path = __toESM(require("path"));
+var import_path2 = __toESM(require("path"));
+
+// types/stagehand.ts
+var StagehandFunctionName = /* @__PURE__ */ ((StagehandFunctionName2) => {
+  StagehandFunctionName2["ACT"] = "ACT";
+  StagehandFunctionName2["EXTRACT"] = "EXTRACT";
+  StagehandFunctionName2["OBSERVE"] = "OBSERVE";
+  return StagehandFunctionName2;
+})(StagehandFunctionName || {});
 
 // lib/StagehandPage.ts
 var import_sdk = require("@browserbasehq/sdk");
@@ -1055,15 +1066,103 @@ function buildActObservePrompt(action, supportedActions, variables) {
   let instruction = `Find the most relevant element to perform an action on given the following action: ${action}. 
   Provide an action for this element such as ${supportedActions.join(", ")}, or any other playwright locator method. Remember that to users, buttons and links look the same in most cases.
   If the action is completely unrelated to a potential action to be taken on the page, return an empty array. 
-  ONLY return one action. If multiple actions are relevant, return the most relevant one.`;
+  ONLY return one action. If multiple actions are relevant, return the most relevant one. If the user is asking to scroll to a position on the page, e.g., 'halfway' or 0.75, etc, you must return the argument formatted as the correct percentage, e.g., '50%' or '75%', etc.`;
   if (variables && Object.keys(variables).length > 0) {
     const variablesPrompt = `The following variables are available to use in the action: ${Object.keys(variables).join(", ")}. Fill the argument variables with the variable name.`;
     instruction += ` ${variablesPrompt}`;
   }
   return instruction;
 }
+function buildOperatorSystemPrompt(goal) {
+  return {
+    role: "system",
+    content: `You are a general-purpose agent whose job is to accomplish the user's goal across multiple model calls by running actions on the page.
+
+You will be given a goal and a list of steps that have been taken so far. Your job is to determine if either the user's goal has been completed or if there are still steps that need to be taken.
+
+# Your current goal
+${goal}
+
+# Important guidelines
+1. Break down complex actions into individual atomic steps
+2. For \`act\` commands, use only one action at a time, such as:
+   - Single click on a specific element
+   - Type into a single input field
+   - Select a single option
+3. Avoid combining multiple actions in one instruction
+4. If multiple actions are needed, they should be separate steps`
+  };
+}
+
+// lib/inferenceLogUtils.ts
+var import_path = __toESM(require("path"));
+var import_fs = __toESM(require("fs"));
+function ensureInferenceSummaryDir() {
+  const inferenceDir = import_path.default.join(process.cwd(), "inference_summary");
+  if (!import_fs.default.existsSync(inferenceDir)) {
+    import_fs.default.mkdirSync(inferenceDir, { recursive: true });
+  }
+  return inferenceDir;
+}
+function appendSummary(inferenceType, entry) {
+  const summaryPath = getSummaryJsonPath(inferenceType);
+  const arrayKey = `${inferenceType}_summary`;
+  const existingData = readSummaryFile(inferenceType);
+  existingData[arrayKey].push(entry);
+  import_fs.default.writeFileSync(summaryPath, JSON.stringify(existingData, null, 2));
+}
+function getTimestamp() {
+  return (/* @__PURE__ */ new Date()).toISOString().replace(/[^0-9T]/g, "").replace("T", "_");
+}
+function writeTimestampedTxtFile(directory, prefix, data) {
+  const baseDir = ensureInferenceSummaryDir();
+  const subDir = import_path.default.join(baseDir, directory);
+  if (!import_fs.default.existsSync(subDir)) {
+    import_fs.default.mkdirSync(subDir, { recursive: true });
+  }
+  const timestamp = getTimestamp();
+  const fileName = `${timestamp}_${prefix}.txt`;
+  const filePath = import_path.default.join(subDir, fileName);
+  import_fs.default.writeFileSync(
+    filePath,
+    JSON.stringify(data, null, 2).replace(/\\n/g, "\n")
+  );
+  return { fileName, timestamp };
+}
+function getSummaryJsonPath(inferenceType) {
+  const baseDir = ensureInferenceSummaryDir();
+  const subDir = import_path.default.join(baseDir, `${inferenceType}_summary`);
+  if (!import_fs.default.existsSync(subDir)) {
+    import_fs.default.mkdirSync(subDir, { recursive: true });
+  }
+  return import_path.default.join(subDir, `${inferenceType}_summary.json`);
+}
+function readSummaryFile(inferenceType) {
+  const summaryPath = getSummaryJsonPath(inferenceType);
+  const arrayKey = `${inferenceType}_summary`;
+  if (!import_fs.default.existsSync(summaryPath)) {
+    return { [arrayKey]: [] };
+  }
+  try {
+    const raw = import_fs.default.readFileSync(summaryPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && Array.isArray(parsed[arrayKey])) {
+      return parsed;
+    }
+  } catch (e) {
+  }
+  return { [arrayKey]: [] };
+}
 
 // lib/inference.ts
+function fillInVariables(text, variables) {
+  let processedText = text;
+  Object.entries(variables).forEach(([key, value]) => {
+    const placeholder = `<|${key.toUpperCase()}|>`;
+    processedText = processedText.replace(placeholder, value);
+  });
+  return processedText;
+}
 function verifyActCompletion(_0) {
   return __async(this, arguments, function* ({
     goal,
@@ -1071,17 +1170,32 @@ function verifyActCompletion(_0) {
     llmClient,
     domElements,
     logger,
-    requestId
+    requestId,
+    logInferenceToFile = false
   }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const verificationSchema = import_zod2.z.object({
       completed: import_zod2.z.boolean().describe("true if the goal is accomplished")
     });
-    const response = yield llmClient.createChatCompletion({
+    const messages = [
+      buildVerifyActCompletionSystemPrompt(),
+      buildVerifyActCompletionUserPrompt(goal, steps, domElements)
+    ];
+    let callFile = "";
+    let callTimestamp = "";
+    if (logInferenceToFile) {
+      const callResult = writeTimestampedTxtFile("act_summary", "verify_call", {
+        requestId,
+        modelCall: "verifyActCompletion",
+        messages
+      });
+      callFile = callResult.fileName;
+      callTimestamp = callResult.timestamp;
+    }
+    const start = Date.now();
+    const rawResponse = yield llmClient.createChatCompletion({
       options: {
-        messages: [
-          buildVerifyActCompletionSystemPrompt(),
-          buildVerifyActCompletionUserPrompt(goal, steps, domElements)
-        ],
+        messages,
         temperature: 0.1,
         top_p: 1,
         frequency_penalty: 0,
@@ -1094,30 +1208,64 @@ function verifyActCompletion(_0) {
       },
       logger
     });
-    if (!response || typeof response !== "object") {
+    const end = Date.now();
+    const inferenceTimeMs = end - start;
+    const parsedResponse = rawResponse;
+    const verificationData = parsedResponse.data;
+    const verificationUsage = parsedResponse.usage;
+    let responseFile = "";
+    if (logInferenceToFile) {
+      const responseResult = writeTimestampedTxtFile(
+        "act_summary",
+        "verify_response",
+        {
+          requestId,
+          modelResponse: "verifyActCompletion",
+          rawResponse: verificationData
+        }
+      );
+      responseFile = responseResult.fileName;
+      appendSummary("act", {
+        act_inference_type: "verifyActCompletion",
+        timestamp: callTimestamp,
+        LLM_input_file: callFile,
+        LLM_output_file: responseFile,
+        prompt_tokens: (_a = verificationUsage == null ? void 0 : verificationUsage.prompt_tokens) != null ? _a : 0,
+        completion_tokens: (_b = verificationUsage == null ? void 0 : verificationUsage.completion_tokens) != null ? _b : 0,
+        inference_time_ms: inferenceTimeMs
+      });
+    }
+    if (!verificationData || typeof verificationData !== "object") {
       logger({
         category: "VerifyAct",
-        message: "Unexpected response format: " + JSON.stringify(response)
+        message: "Unexpected response format: " + JSON.stringify(parsedResponse)
       });
-      return false;
+      return {
+        completed: false,
+        prompt_tokens: (_c = verificationUsage == null ? void 0 : verificationUsage.prompt_tokens) != null ? _c : 0,
+        completion_tokens: (_d = verificationUsage == null ? void 0 : verificationUsage.completion_tokens) != null ? _d : 0,
+        inference_time_ms: inferenceTimeMs
+      };
     }
-    if (response.completed === void 0) {
+    if (verificationData.completed === void 0) {
       logger({
         category: "VerifyAct",
         message: "Missing 'completed' field in response"
       });
-      return false;
+      return {
+        completed: false,
+        prompt_tokens: (_e = verificationUsage == null ? void 0 : verificationUsage.prompt_tokens) != null ? _e : 0,
+        completion_tokens: (_f = verificationUsage == null ? void 0 : verificationUsage.completion_tokens) != null ? _f : 0,
+        inference_time_ms: inferenceTimeMs
+      };
     }
-    return response.completed;
+    return {
+      completed: verificationData.completed,
+      prompt_tokens: (_g = verificationUsage == null ? void 0 : verificationUsage.prompt_tokens) != null ? _g : 0,
+      completion_tokens: (_h = verificationUsage == null ? void 0 : verificationUsage.completion_tokens) != null ? _h : 0,
+      inference_time_ms: inferenceTimeMs
+    };
   });
-}
-function fillInVariables(text, variables) {
-  let processedText = text;
-  Object.entries(variables).forEach(([key, value]) => {
-    const placeholder = `<|${key.toUpperCase()}|>`;
-    processedText = processedText.replace(placeholder, value);
-  });
-  return processedText;
 }
 function act(_0) {
   return __async(this, arguments, function* ({
@@ -1129,13 +1277,28 @@ function act(_0) {
     logger,
     requestId,
     variables,
-    userProvidedInstructions
+    userProvidedInstructions,
+    onActMetrics,
+    logInferenceToFile = false
   }) {
+    var _a, _b, _c, _d, _e;
     const messages = [
       buildActSystemPrompt(userProvidedInstructions),
       buildActUserPrompt(action, steps, domElements, variables)
     ];
-    const response = yield llmClient.createChatCompletion({
+    let callFile = "";
+    let callTimestamp = "";
+    if (logInferenceToFile) {
+      const callResult = writeTimestampedTxtFile("act_summary", "act_call", {
+        requestId,
+        modelCall: "act",
+        messages
+      });
+      callFile = callResult.fileName;
+      callTimestamp = callResult.timestamp;
+    }
+    const start = Date.now();
+    const rawResponse = yield llmClient.createChatCompletion({
       options: {
         messages,
         temperature: 0.1,
@@ -1148,7 +1311,39 @@ function act(_0) {
       },
       logger
     });
-    const toolCalls = response.choices[0].message.tool_calls;
+    const end = Date.now();
+    const inferenceTimeMs = end - start;
+    let responseFile = "";
+    if (logInferenceToFile) {
+      const responseResult = writeTimestampedTxtFile(
+        "act_summary",
+        "act_response",
+        {
+          requestId,
+          modelResponse: "act",
+          rawResponse
+        }
+      );
+      responseFile = responseResult.fileName;
+    }
+    const usageData = rawResponse.usage;
+    const promptTokens = (_a = usageData == null ? void 0 : usageData.prompt_tokens) != null ? _a : 0;
+    const completionTokens = (_b = usageData == null ? void 0 : usageData.completion_tokens) != null ? _b : 0;
+    if (logInferenceToFile) {
+      appendSummary("act", {
+        act_inference_type: "act",
+        timestamp: callTimestamp,
+        LLM_input_file: callFile,
+        LLM_output_file: responseFile,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        inference_time_ms: inferenceTimeMs
+      });
+    }
+    if (onActMetrics) {
+      onActMetrics(promptTokens, completionTokens, inferenceTimeMs);
+    }
+    const toolCalls = (_e = (_d = (_c = rawResponse.choices) == null ? void 0 : _c[0]) == null ? void 0 : _d.message) == null ? void 0 : _e.tool_calls;
     if (toolCalls && toolCalls.length > 0) {
       if (toolCalls[0].function.name === "skipSection") {
         return null;
@@ -1158,7 +1353,7 @@ function act(_0) {
       if (retries >= 2) {
         logger({
           category: "Act",
-          message: "No tool calls found in response"
+          message: "No tool calls found in response after multiple retries."
         });
         return null;
       }
@@ -1169,7 +1364,11 @@ function act(_0) {
         llmClient,
         retries: retries + 1,
         logger,
-        requestId
+        requestId,
+        variables,
+        userProvidedInstructions,
+        onActMetrics,
+        logInferenceToFile
       });
     }
   });
@@ -1186,19 +1385,46 @@ function extract(_0) {
     requestId,
     logger,
     isUsingTextExtract,
-    userProvidedInstructions
+    userProvidedInstructions,
+    logInferenceToFile = false
   }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
+    const metadataSchema = import_zod2.z.object({
+      progress: import_zod2.z.string().describe(
+        "progress of what has been extracted so far, as concise as possible"
+      ),
+      completed: import_zod2.z.boolean().describe(
+        "true if the goal is now accomplished. Use this conservatively, only when sure that the goal has been completed."
+      )
+    });
     const isUsingAnthropic = llmClient.type === "anthropic";
+    const extractCallMessages = [
+      buildExtractSystemPrompt(
+        isUsingAnthropic,
+        isUsingTextExtract,
+        userProvidedInstructions
+      ),
+      buildExtractUserPrompt(instruction, domElements, isUsingAnthropic)
+    ];
+    let extractCallFile = "";
+    let extractCallTimestamp = "";
+    if (logInferenceToFile) {
+      const { fileName, timestamp } = writeTimestampedTxtFile(
+        "extract_summary",
+        "extract_call",
+        {
+          requestId,
+          modelCall: "extract",
+          messages: extractCallMessages
+        }
+      );
+      extractCallFile = fileName;
+      extractCallTimestamp = timestamp;
+    }
+    const extractStartTime = Date.now();
     const extractionResponse = yield llmClient.createChatCompletion({
       options: {
-        messages: [
-          buildExtractSystemPrompt(
-            isUsingAnthropic,
-            isUsingTextExtract,
-            userProvidedInstructions
-          ),
-          buildExtractUserPrompt(instruction, domElements, isUsingAnthropic)
-        ],
+        messages: extractCallMessages,
         response_model: {
           schema,
           name: "Extraction"
@@ -1211,16 +1437,57 @@ function extract(_0) {
       },
       logger
     });
+    const extractEndTime = Date.now();
+    const { data: extractedData, usage: extractUsage } = extractionResponse;
+    let extractResponseFile = "";
+    if (logInferenceToFile) {
+      const { fileName } = writeTimestampedTxtFile(
+        "extract_summary",
+        "extract_response",
+        {
+          requestId,
+          modelResponse: "extract",
+          rawResponse: extractedData
+        }
+      );
+      extractResponseFile = fileName;
+      appendSummary("extract", {
+        extract_inference_type: "extract",
+        timestamp: extractCallTimestamp,
+        LLM_input_file: extractCallFile,
+        LLM_output_file: extractResponseFile,
+        prompt_tokens: (_a = extractUsage == null ? void 0 : extractUsage.prompt_tokens) != null ? _a : 0,
+        completion_tokens: (_b = extractUsage == null ? void 0 : extractUsage.completion_tokens) != null ? _b : 0,
+        inference_time_ms: extractEndTime - extractStartTime
+      });
+    }
+    const refineCallMessages = [
+      buildRefineSystemPrompt(),
+      buildRefineUserPrompt(
+        instruction,
+        previouslyExtractedContent,
+        extractedData
+      )
+    ];
+    let refineCallFile = "";
+    let refineCallTimestamp = "";
+    if (logInferenceToFile) {
+      const { fileName, timestamp } = writeTimestampedTxtFile(
+        "extract_summary",
+        "refine_call",
+        {
+          requestId,
+          modelCall: "refine",
+          messages: refineCallMessages
+        }
+      );
+      refineCallFile = fileName;
+      refineCallTimestamp = timestamp;
+    }
+    const refineStartTime = Date.now();
     const refinedResponse = yield llmClient.createChatCompletion({
       options: {
-        messages: [
-          buildRefineSystemPrompt(),
-          buildRefineUserPrompt(
-            instruction,
-            previouslyExtractedContent,
-            extractionResponse
-          )
-        ],
+        messages: refineCallMessages,
         response_model: {
           schema,
           name: "RefinedExtraction"
@@ -1233,25 +1500,58 @@ function extract(_0) {
       },
       logger
     });
-    const metadataSchema = import_zod2.z.object({
-      progress: import_zod2.z.string().describe(
-        "progress of what has been extracted so far, as concise as possible"
-      ),
-      completed: import_zod2.z.boolean().describe(
-        "true if the goal is now accomplished. Use this conservatively, only when you are sure that the goal has been completed."
+    const refineEndTime = Date.now();
+    const { data: refinedResponseData, usage: refinedResponseUsage } = refinedResponse;
+    let refineResponseFile = "";
+    if (logInferenceToFile) {
+      const { fileName } = writeTimestampedTxtFile(
+        "extract_summary",
+        "refine_response",
+        {
+          requestId,
+          modelResponse: "refine",
+          rawResponse: refinedResponseData
+        }
+      );
+      refineResponseFile = fileName;
+      appendSummary("extract", {
+        extract_inference_type: "refine",
+        timestamp: refineCallTimestamp,
+        LLM_input_file: refineCallFile,
+        LLM_output_file: refineResponseFile,
+        prompt_tokens: (_c = refinedResponseUsage == null ? void 0 : refinedResponseUsage.prompt_tokens) != null ? _c : 0,
+        completion_tokens: (_d = refinedResponseUsage == null ? void 0 : refinedResponseUsage.completion_tokens) != null ? _d : 0,
+        inference_time_ms: refineEndTime - refineStartTime
+      });
+    }
+    const metadataCallMessages = [
+      buildMetadataSystemPrompt(),
+      buildMetadataPrompt(
+        instruction,
+        refinedResponseData,
+        chunksSeen,
+        chunksTotal
       )
-    });
+    ];
+    let metadataCallFile = "";
+    let metadataCallTimestamp = "";
+    if (logInferenceToFile) {
+      const { fileName, timestamp } = writeTimestampedTxtFile(
+        "extract_summary",
+        "metadata_call",
+        {
+          requestId,
+          modelCall: "metadata",
+          messages: metadataCallMessages
+        }
+      );
+      metadataCallFile = fileName;
+      metadataCallTimestamp = timestamp;
+    }
+    const metadataStartTime = Date.now();
     const metadataResponse = yield llmClient.createChatCompletion({
       options: {
-        messages: [
-          buildMetadataSystemPrompt(),
-          buildMetadataPrompt(
-            instruction,
-            refinedResponse,
-            chunksSeen,
-            chunksTotal
-          )
-        ],
+        messages: metadataCallMessages,
         response_model: {
           name: "Metadata",
           schema: metadataSchema
@@ -1264,8 +1564,48 @@ function extract(_0) {
       },
       logger
     });
-    return __spreadProps(__spreadValues({}, refinedResponse), {
-      metadata: metadataResponse
+    const metadataEndTime = Date.now();
+    const {
+      data: {
+        completed: metadataResponseCompleted,
+        progress: metadataResponseProgress
+      },
+      usage: metadataResponseUsage
+    } = metadataResponse;
+    let metadataResponseFile = "";
+    if (logInferenceToFile) {
+      const { fileName } = writeTimestampedTxtFile(
+        "extract_summary",
+        "metadata_response",
+        {
+          requestId,
+          modelResponse: "metadata",
+          completed: metadataResponseCompleted,
+          progress: metadataResponseProgress
+        }
+      );
+      metadataResponseFile = fileName;
+      appendSummary("extract", {
+        extract_inference_type: "metadata",
+        timestamp: metadataCallTimestamp,
+        LLM_input_file: metadataCallFile,
+        LLM_output_file: metadataResponseFile,
+        prompt_tokens: (_e = metadataResponseUsage == null ? void 0 : metadataResponseUsage.prompt_tokens) != null ? _e : 0,
+        completion_tokens: (_f = metadataResponseUsage == null ? void 0 : metadataResponseUsage.completion_tokens) != null ? _f : 0,
+        inference_time_ms: metadataEndTime - metadataStartTime
+      });
+    }
+    const totalPromptTokens = ((_g = extractUsage == null ? void 0 : extractUsage.prompt_tokens) != null ? _g : 0) + ((_h = refinedResponseUsage == null ? void 0 : refinedResponseUsage.prompt_tokens) != null ? _h : 0) + ((_i = metadataResponseUsage == null ? void 0 : metadataResponseUsage.prompt_tokens) != null ? _i : 0);
+    const totalCompletionTokens = ((_j = extractUsage == null ? void 0 : extractUsage.completion_tokens) != null ? _j : 0) + ((_k = refinedResponseUsage == null ? void 0 : refinedResponseUsage.completion_tokens) != null ? _k : 0) + ((_l = metadataResponseUsage == null ? void 0 : metadataResponseUsage.completion_tokens) != null ? _l : 0);
+    const totalInferenceTimeMs = extractEndTime - extractStartTime + (refineEndTime - refineStartTime) + (metadataEndTime - metadataStartTime);
+    return __spreadProps(__spreadValues({}, refinedResponseData), {
+      metadata: {
+        completed: metadataResponseCompleted,
+        progress: metadataResponseProgress
+      },
+      prompt_tokens: totalPromptTokens,
+      completion_tokens: totalCompletionTokens,
+      inference_time_ms: totalInferenceTimeMs
     });
   });
 }
@@ -1278,9 +1618,10 @@ function observe(_0) {
     isUsingAccessibilityTree,
     userProvidedInstructions,
     logger,
-    returnAction = false
+    returnAction = false,
+    logInferenceToFile = false
   }) {
-    var _a, _b;
+    var _a, _b, _c, _d;
     const observeSchema = import_zod2.z.object({
       elements: import_zod2.z.array(
         import_zod2.z.object(__spreadValues({
@@ -1302,19 +1643,32 @@ function observe(_0) {
         isUsingAccessibilityTree ? "an array of accessible elements that match the instruction" : "an array of elements that match the instruction"
       )
     });
-    const observationResponse = yield llmClient.createChatCompletion({
+    const messages = [
+      buildObserveSystemPrompt(
+        userProvidedInstructions,
+        isUsingAccessibilityTree
+      ),
+      buildObserveUserMessage(instruction, domElements, isUsingAccessibilityTree)
+    ];
+    let callTimestamp = "";
+    let callFile = "";
+    if (logInferenceToFile) {
+      const { fileName, timestamp } = writeTimestampedTxtFile(
+        "observe_summary",
+        "observe_call",
+        {
+          requestId,
+          modelCall: "observe",
+          messages
+        }
+      );
+      callFile = fileName;
+      callTimestamp = timestamp;
+    }
+    const start = Date.now();
+    const rawResponse = yield llmClient.createChatCompletion({
       options: {
-        messages: [
-          buildObserveSystemPrompt(
-            userProvidedInstructions,
-            isUsingAccessibilityTree
-          ),
-          buildObserveUserMessage(
-            instruction,
-            domElements,
-            isUsingAccessibilityTree
-          )
-        ],
+        messages,
         response_model: {
           schema: observeSchema,
           name: "Observation"
@@ -1327,19 +1681,52 @@ function observe(_0) {
       },
       logger
     });
-    const parsedResponse = {
-      elements: (_b = (_a = observationResponse.elements) == null ? void 0 : _a.map((el) => {
-        const base = {
-          elementId: Number(el.elementId),
-          description: String(el.description)
-        };
-        return returnAction ? __spreadProps(__spreadValues({}, base), {
+    const end = Date.now();
+    const usageTimeMs = end - start;
+    const { data: observeData, usage: observeUsage } = rawResponse;
+    const promptTokens = (_a = observeUsage == null ? void 0 : observeUsage.prompt_tokens) != null ? _a : 0;
+    const completionTokens = (_b = observeUsage == null ? void 0 : observeUsage.completion_tokens) != null ? _b : 0;
+    let responseFile = "";
+    if (logInferenceToFile) {
+      const { fileName: responseFileName } = writeTimestampedTxtFile(
+        "observe_summary",
+        "observe_response",
+        {
+          requestId,
+          modelResponse: "observe",
+          rawResponse: observeData
+        }
+      );
+      responseFile = responseFileName;
+      appendSummary("observe", {
+        observe_inference_type: "observe",
+        timestamp: callTimestamp,
+        LLM_input_file: callFile,
+        LLM_output_file: responseFile,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        inference_time_ms: usageTimeMs
+      });
+    }
+    const parsedElements = (_d = (_c = observeData.elements) == null ? void 0 : _c.map((el) => {
+      const base = {
+        elementId: Number(el.elementId),
+        description: String(el.description)
+      };
+      if (returnAction) {
+        return __spreadProps(__spreadValues({}, base), {
           method: String(el.method),
           arguments: el.arguments
-        }) : base;
-      })) != null ? _b : []
+        });
+      }
+      return base;
+    })) != null ? _d : [];
+    return {
+      elements: parsedElements,
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      inference_time_ms: usageTimeMs
     };
-    return parsedResponse;
   });
 }
 
@@ -1603,12 +1990,376 @@ var SupportedPlaywrightAction = /* @__PURE__ */ ((SupportedPlaywrightAction2) =>
   SupportedPlaywrightAction2["CLICK"] = "click";
   SupportedPlaywrightAction2["FILL"] = "fill";
   SupportedPlaywrightAction2["TYPE"] = "type";
+  SupportedPlaywrightAction2["SCROLL"] = "scrollTo";
   return SupportedPlaywrightAction2;
 })(SupportedPlaywrightAction || {});
+
+// lib/dom/utils.ts
+function getNodeFromXpath(xpath) {
+  return document.evaluate(
+    xpath,
+    document.documentElement,
+    null,
+    XPathResult.FIRST_ORDERED_NODE_TYPE,
+    null
+  ).singleNodeValue;
+}
+
+// lib/handlers/handlerUtils/actHandlerUtils.ts
+var methodHandlerMap = {
+  scrollIntoView: scrollElementIntoView,
+  scrollTo: scrollElementToPercentage,
+  scroll: scrollElementToPercentage,
+  "mouse.wheel": scrollElementToPercentage,
+  fill: fillOrType,
+  type: fillOrType,
+  press: pressKey,
+  click: clickElement
+};
+function scrollElementIntoView(ctx) {
+  return __async(this, null, function* () {
+    const { locator, xpath, logger } = ctx;
+    logger({
+      category: "action",
+      message: "scrolling element into view",
+      level: 2,
+      auxiliary: {
+        xpath: { value: xpath, type: "string" }
+      }
+    });
+    try {
+      yield locator.evaluate((element) => {
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    } catch (e) {
+      logger({
+        category: "action",
+        message: "error scrolling element into view",
+        level: 1,
+        auxiliary: {
+          error: { value: e.message, type: "string" },
+          trace: { value: e.stack, type: "string" },
+          xpath: { value: xpath, type: "string" }
+        }
+      });
+      throw new PlaywrightCommandException(e.message);
+    }
+  });
+}
+function scrollElementToPercentage(ctx) {
+  return __async(this, null, function* () {
+    const { args, stagehandPage, xpath, logger } = ctx;
+    logger({
+      category: "action",
+      message: "scrolling element vertically to specified percentage",
+      level: 2,
+      auxiliary: {
+        xpath: { value: xpath, type: "string" },
+        coordinate: { value: JSON.stringify(args), type: "string" }
+      }
+    });
+    try {
+      const [yArg = "0%"] = args;
+      yield stagehandPage.page.evaluate(
+        ({ xpath: xpath2, yArg: yArg2 }) => {
+          function parsePercent(val) {
+            const cleaned = val.trim().replace("%", "");
+            const num = parseFloat(cleaned);
+            return Number.isNaN(num) ? 0 : Math.max(0, Math.min(num, 100));
+          }
+          const elementNode = getNodeFromXpath(xpath2);
+          if (!elementNode || elementNode.nodeType !== Node.ELEMENT_NODE) {
+            console.warn(`Could not locate element to scroll on.`);
+            return;
+          }
+          const element = elementNode;
+          const yPct = parsePercent(yArg2);
+          if (element.tagName.toLowerCase() === "html") {
+            const scrollHeight = document.body.scrollHeight;
+            const viewportHeight = window.innerHeight;
+            const scrollTop = (scrollHeight - viewportHeight) * (yPct / 100);
+            window.scrollTo({
+              top: scrollTop,
+              left: window.scrollX,
+              behavior: "smooth"
+            });
+          } else {
+            const scrollHeight = element.scrollHeight;
+            const clientHeight = element.clientHeight;
+            const scrollTop = (scrollHeight - clientHeight) * (yPct / 100);
+            element.scrollTo({
+              top: scrollTop,
+              left: element.scrollLeft,
+              behavior: "smooth"
+            });
+          }
+        },
+        { xpath, yArg }
+      );
+    } catch (e) {
+      logger({
+        category: "action",
+        message: "error scrolling element vertically to percentage",
+        level: 1,
+        auxiliary: {
+          error: { value: e.message, type: "string" },
+          trace: { value: e.stack, type: "string" },
+          xpath: { value: xpath, type: "string" },
+          args: { value: JSON.stringify(args), type: "object" }
+        }
+      });
+      throw new PlaywrightCommandException(e.message);
+    }
+  });
+}
+function fillOrType(ctx) {
+  return __async(this, null, function* () {
+    var _a;
+    const { locator, xpath, args, logger } = ctx;
+    try {
+      yield locator.fill("");
+      yield locator.click();
+      const text = ((_a = args[0]) == null ? void 0 : _a.toString()) || "";
+      for (const char of text) {
+        yield locator.page().keyboard.type(char, {
+          delay: Math.random() * 50 + 25
+        });
+      }
+    } catch (e) {
+      logger({
+        category: "action",
+        message: "error filling element",
+        level: 1,
+        auxiliary: {
+          error: { value: e.message, type: "string" },
+          trace: { value: e.stack, type: "string" },
+          xpath: { value: xpath, type: "string" }
+        }
+      });
+      throw new PlaywrightCommandException(e.message);
+    }
+  });
+}
+function pressKey(ctx) {
+  return __async(this, null, function* () {
+    var _a, _b, _c, _d;
+    const {
+      locator,
+      xpath,
+      args,
+      logger,
+      stagehandPage,
+      initialUrl,
+      domSettleTimeoutMs
+    } = ctx;
+    try {
+      const key = (_b = (_a = args[0]) == null ? void 0 : _a.toString()) != null ? _b : "";
+      yield locator.page().keyboard.press(key);
+      yield handlePossiblePageNavigation(
+        "press",
+        xpath,
+        initialUrl,
+        stagehandPage,
+        logger,
+        domSettleTimeoutMs
+      );
+    } catch (e) {
+      logger({
+        category: "action",
+        message: "error pressing key",
+        level: 1,
+        auxiliary: {
+          error: { value: e.message, type: "string" },
+          trace: { value: e.stack, type: "string" },
+          key: { value: (_d = (_c = args[0]) == null ? void 0 : _c.toString()) != null ? _d : "unknown", type: "string" }
+        }
+      });
+      throw new PlaywrightCommandException(e.message);
+    }
+  });
+}
+function clickElement(ctx) {
+  return __async(this, null, function* () {
+    const {
+      locator,
+      xpath,
+      args,
+      logger,
+      stagehandPage,
+      initialUrl,
+      domSettleTimeoutMs
+    } = ctx;
+    logger({
+      category: "action",
+      message: "page URL before click",
+      level: 2,
+      auxiliary: {
+        url: {
+          value: stagehandPage.page.url(),
+          type: "string"
+        }
+      }
+    });
+    try {
+      const isRadio = yield locator.evaluate((el) => {
+        return el instanceof HTMLInputElement && el.type === "radio";
+      });
+      const clickArg = args.length ? args[0] : void 0;
+      if (isRadio) {
+        const inputId = yield locator.evaluate(
+          (el) => el.id
+        );
+        let labelLocator = null;
+        if (inputId) {
+          labelLocator = stagehandPage.page.locator(`label[for="${inputId}"]`);
+        }
+        if (!labelLocator || (yield labelLocator.count()) < 1) {
+          labelLocator = stagehandPage.page.locator(`xpath=${xpath}/ancestor::label`).first();
+        }
+        if ((yield labelLocator.count()) < 1) {
+          labelLocator = locator.locator("xpath=following-sibling::label").first();
+          if ((yield labelLocator.count()) < 1) {
+            labelLocator = locator.locator("xpath=preceding-sibling::label").first();
+          }
+        }
+        if ((yield labelLocator.count()) > 0) {
+          yield labelLocator.click(clickArg);
+        } else {
+          yield locator.click(clickArg);
+        }
+      } else {
+        yield locator.click(clickArg);
+      }
+    } catch (e) {
+      logger({
+        category: "action",
+        message: "error performing click",
+        level: 1,
+        auxiliary: {
+          error: { value: e.message, type: "string" },
+          trace: { value: e.stack, type: "string" },
+          xpath: { value: xpath, type: "string" },
+          method: { value: "click", type: "string" },
+          args: { value: JSON.stringify(args), type: "object" }
+        }
+      });
+      throw new PlaywrightCommandException(e.message);
+    }
+    yield handlePossiblePageNavigation(
+      "click",
+      xpath,
+      initialUrl,
+      stagehandPage,
+      logger,
+      domSettleTimeoutMs
+    );
+  });
+}
+function fallbackLocatorMethod(ctx) {
+  return __async(this, null, function* () {
+    const { locator, xpath, method, args, logger } = ctx;
+    logger({
+      category: "action",
+      message: "page URL before action",
+      level: 2,
+      auxiliary: {
+        url: { value: locator.page().url(), type: "string" }
+      }
+    });
+    try {
+      yield locator[method](...args.map((arg) => (arg == null ? void 0 : arg.toString()) || ""));
+    } catch (e) {
+      logger({
+        category: "action",
+        message: "error performing method",
+        level: 1,
+        auxiliary: {
+          error: { value: e.message, type: "string" },
+          trace: { value: e.stack, type: "string" },
+          xpath: { value: xpath, type: "string" },
+          method: { value: method, type: "string" },
+          args: { value: JSON.stringify(args), type: "object" }
+        }
+      });
+      throw new PlaywrightCommandException(e.message);
+    }
+  });
+}
+function handlePossiblePageNavigation(actionDescription, xpath, initialUrl, stagehandPage, logger, domSettleTimeoutMs) {
+  return __async(this, null, function* () {
+    logger({
+      category: "action",
+      message: `${actionDescription}, checking for page navigation`,
+      level: 1,
+      auxiliary: {
+        xpath: { value: xpath, type: "string" }
+      }
+    });
+    const newOpenedTab = yield Promise.race([
+      new Promise((resolve) => {
+        stagehandPage.context.once("page", (page) => resolve(page));
+        setTimeout(() => resolve(null), 1500);
+      })
+    ]);
+    logger({
+      category: "action",
+      message: `${actionDescription} complete`,
+      level: 1,
+      auxiliary: {
+        newOpenedTab: {
+          value: newOpenedTab ? "opened a new tab" : "no new tabs opened",
+          type: "string"
+        }
+      }
+    });
+    if (newOpenedTab) {
+      logger({
+        category: "action",
+        message: "new page detected (new tab) with URL",
+        level: 1,
+        auxiliary: {
+          url: { value: newOpenedTab.url(), type: "string" }
+        }
+      });
+      yield newOpenedTab.close();
+      yield stagehandPage.page.goto(newOpenedTab.url());
+      yield stagehandPage.page.waitForLoadState("domcontentloaded");
+    }
+    try {
+      yield stagehandPage._waitForSettledDom(domSettleTimeoutMs);
+    } catch (e) {
+      logger({
+        category: "action",
+        message: "wait for settled DOM timeout hit",
+        level: 1,
+        auxiliary: {
+          trace: { value: e.stack, type: "string" },
+          message: { value: e.message, type: "string" }
+        }
+      });
+    }
+    logger({
+      category: "action",
+      message: "finished waiting for (possible) page navigation",
+      level: 1
+    });
+    if (stagehandPage.page.url() !== initialUrl) {
+      logger({
+        category: "action",
+        message: "new page detected with URL",
+        level: 1,
+        auxiliary: {
+          url: { value: stagehandPage.page.url(), type: "string" }
+        }
+      });
+    }
+  });
+}
 
 // lib/handlers/actHandler.ts
 var StagehandActHandler = class {
   constructor({
+    stagehand,
     verbose,
     llmProvider,
     enableCaching,
@@ -1618,6 +2369,7 @@ var StagehandActHandler = class {
     selfHeal,
     waitForCaptchaSolves
   }) {
+    this.stagehand = stagehand;
     this.verbose = verbose;
     this.llmProvider = llmProvider;
     this.enableCaching = enableCaching;
@@ -1835,15 +2587,17 @@ var StagehandActHandler = class {
             }
           }
         });
-        actionCompleted = yield verifyActCompletion({
+        const verifyResult = yield verifyActCompletion({
           goal: action,
           steps,
           llmProvider: this.llmProvider,
           llmClient: verifyLLmClient,
           domElements,
           logger: this.logger,
-          requestId
+          requestId,
+          logInferenceToFile: this.stagehand.logInferenceToFile
         });
+        actionCompleted = verifyResult.completed;
         this.logger({
           category: "action",
           message: "action completion verification result",
@@ -1859,13 +2613,18 @@ var StagehandActHandler = class {
             }
           }
         });
+        this.stagehand.updateMetrics(
+          "ACT" /* ACT */,
+          verifyResult.prompt_tokens,
+          verifyResult.completion_tokens,
+          verifyResult.inference_time_ms
+        );
       }
       return actionCompleted;
     });
   }
   _performPlaywrightMethod(method, args, xpath, domSettleTimeoutMs) {
     return __async(this, null, function* () {
-      var _a, _b, _c, _d;
       const locator = this.stagehandPage.page.locator(`xpath=${xpath}`).first();
       const initialUrl = this.stagehandPage.page.url();
       this.logger({
@@ -1873,345 +2632,55 @@ var StagehandActHandler = class {
         message: "performing playwright method",
         level: 2,
         auxiliary: {
-          xpath: {
-            value: xpath,
-            type: "string"
-          },
-          method: {
-            value: method,
-            type: "string"
-          }
+          xpath: { value: xpath, type: "string" },
+          method: { value: method, type: "string" }
         }
       });
-      if (method === "scrollIntoView") {
+      const context = {
+        method,
+        locator,
+        xpath,
+        args,
+        logger: this.logger,
+        stagehandPage: this.stagehandPage,
+        initialUrl,
+        domSettleTimeoutMs
+      };
+      try {
+        const methodFn = methodHandlerMap[method];
+        if (methodFn) {
+          yield methodFn(context);
+        } else if (typeof locator[method] === "function") {
+          yield fallbackLocatorMethod(context);
+        } else {
+          this.logger({
+            category: "action",
+            message: "chosen method is invalid",
+            level: 1,
+            auxiliary: {
+              method: { value: method, type: "string" }
+            }
+          });
+          throw new PlaywrightCommandMethodNotSupportedException(
+            `Method ${method} not supported`
+          );
+        }
+        yield this.stagehandPage._waitForSettledDom(domSettleTimeoutMs);
+      } catch (e) {
         this.logger({
           category: "action",
-          message: "scrolling element into view",
-          level: 2,
-          auxiliary: {
-            xpath: {
-              value: xpath,
-              type: "string"
-            }
-          }
-        });
-        try {
-          yield locator.evaluate((element) => {
-            element.scrollIntoView({ behavior: "smooth", block: "center" });
-          }).catch((e) => {
-            this.logger({
-              category: "action",
-              message: "error scrolling element into view",
-              level: 1,
-              auxiliary: {
-                error: {
-                  value: e.message,
-                  type: "string"
-                },
-                trace: {
-                  value: e.stack,
-                  type: "string"
-                },
-                xpath: {
-                  value: xpath,
-                  type: "string"
-                }
-              }
-            });
-          });
-        } catch (e) {
-          this.logger({
-            category: "action",
-            message: "error scrolling element into view",
-            level: 1,
-            auxiliary: {
-              error: {
-                value: e.message,
-                type: "string"
-              },
-              trace: {
-                value: e.stack,
-                type: "string"
-              },
-              xpath: {
-                value: xpath,
-                type: "string"
-              }
-            }
-          });
-          throw new PlaywrightCommandException(e.message);
-        }
-      } else if (method === "fill" || method === "type") {
-        try {
-          yield locator.fill("");
-          yield locator.click();
-          const text = (_a = args[0]) == null ? void 0 : _a.toString();
-          for (const char of text) {
-            yield this.stagehandPage.page.keyboard.type(char, {
-              delay: Math.random() * 50 + 25
-            });
-          }
-        } catch (e) {
-          this.logger({
-            category: "action",
-            message: "error filling element",
-            level: 1,
-            auxiliary: {
-              error: {
-                value: e.message,
-                type: "string"
-              },
-              trace: {
-                value: e.stack,
-                type: "string"
-              },
-              xpath: {
-                value: xpath,
-                type: "string"
-              }
-            }
-          });
-          throw new PlaywrightCommandException(e.message);
-        }
-      } else if (method === "press") {
-        try {
-          const key = (_b = args[0]) == null ? void 0 : _b.toString();
-          yield this.stagehandPage.page.keyboard.press(key);
-        } catch (e) {
-          this.logger({
-            category: "action",
-            message: "error pressing key",
-            level: 1,
-            auxiliary: {
-              error: {
-                value: e.message,
-                type: "string"
-              },
-              trace: {
-                value: e.stack,
-                type: "string"
-              },
-              key: {
-                value: (_d = (_c = args[0]) == null ? void 0 : _c.toString()) != null ? _d : "unknown",
-                type: "string"
-              }
-            }
-          });
-          throw new PlaywrightCommandException(e.message);
-        }
-      } else if (method === "click") {
-        this.logger({
-          category: "action",
-          message: "page URL before click",
-          level: 2,
-          auxiliary: {
-            url: {
-              value: this.stagehandPage.page.url(),
-              type: "string"
-            }
-          }
-        });
-        try {
-          const isRadio = yield locator.evaluate((el) => {
-            return el instanceof HTMLInputElement && el.type === "radio";
-          });
-          const clickArg = args.length ? args[0] : void 0;
-          if (isRadio) {
-            const inputId = yield locator.evaluate((el) => el.id);
-            let labelLocator;
-            if (inputId) {
-              labelLocator = this.stagehandPage.page.locator(
-                `label[for="${inputId}"]`
-              );
-            }
-            if (!labelLocator || (yield labelLocator.count()) < 1) {
-              labelLocator = this.stagehandPage.page.locator(`xpath=${xpath}/ancestor::label`).first();
-            }
-            if ((yield labelLocator.count()) < 1) {
-              labelLocator = locator.locator(`xpath=following-sibling::label`).first();
-              if ((yield labelLocator.count()) < 1) {
-                labelLocator = locator.locator(`xpath=preceding-sibling::label`).first();
-              }
-            }
-            if ((yield labelLocator.count()) > 0) {
-              yield labelLocator.click(clickArg);
-            } else {
-              yield locator.click(clickArg);
-            }
-          } else {
-            const clickArg2 = args.length ? args[0] : void 0;
-            yield locator.click(clickArg2);
-          }
-        } catch (e) {
-          this.logger({
-            category: "action",
-            message: "error performing click",
-            level: 1,
-            auxiliary: {
-              error: {
-                value: e.message,
-                type: "string"
-              },
-              trace: {
-                value: e.stack,
-                type: "string"
-              },
-              xpath: {
-                value: xpath,
-                type: "string"
-              },
-              method: {
-                value: method,
-                type: "string"
-              },
-              args: {
-                value: JSON.stringify(args),
-                type: "object"
-              }
-            }
-          });
-          throw new PlaywrightCommandException(e.message);
-        }
-        this.logger({
-          category: "action",
-          message: "clicking element, checking for page navigation",
+          message: "error performing method",
           level: 1,
           auxiliary: {
-            xpath: {
-              value: xpath,
-              type: "string"
-            }
+            error: { value: e.message, type: "string" },
+            trace: { value: e.stack, type: "string" },
+            method: { value: method, type: "string" },
+            xpath: { value: xpath, type: "string" },
+            args: { value: JSON.stringify(args), type: "object" }
           }
         });
-        const newOpenedTab = yield Promise.race([
-          new Promise((resolve) => {
-            this.stagehandPage.context.once("page", (page) => resolve(page));
-            setTimeout(() => resolve(null), 1500);
-          })
-        ]);
-        this.logger({
-          category: "action",
-          message: "clicked element",
-          level: 1,
-          auxiliary: {
-            newOpenedTab: {
-              value: newOpenedTab ? "opened a new tab" : "no new tabs opened",
-              type: "string"
-            }
-          }
-        });
-        if (newOpenedTab) {
-          this.logger({
-            category: "action",
-            message: "new page detected (new tab) with URL",
-            level: 1,
-            auxiliary: {
-              url: {
-                value: newOpenedTab.url(),
-                type: "string"
-              }
-            }
-          });
-          yield newOpenedTab.close();
-          yield this.stagehandPage.page.goto(newOpenedTab.url());
-          yield this.stagehandPage.page.waitForLoadState("domcontentloaded");
-        }
-        yield this.stagehandPage._waitForSettledDom(domSettleTimeoutMs).catch((e) => {
-          this.logger({
-            category: "action",
-            message: "wait for settled dom timeout hit",
-            level: 1,
-            auxiliary: {
-              trace: {
-                value: e.stack,
-                type: "string"
-              },
-              message: {
-                value: e.message,
-                type: "string"
-              }
-            }
-          });
-        });
-        this.logger({
-          category: "action",
-          message: "finished waiting for (possible) page navigation",
-          level: 1
-        });
-        if (this.stagehandPage.page.url() !== initialUrl) {
-          this.logger({
-            category: "action",
-            message: "new page detected with URL",
-            level: 1,
-            auxiliary: {
-              url: {
-                value: this.stagehandPage.page.url(),
-                type: "string"
-              }
-            }
-          });
-        }
-      } else if (typeof locator[method] === "function") {
-        this.logger({
-          category: "action",
-          message: "page URL before action",
-          level: 2,
-          auxiliary: {
-            url: {
-              value: this.stagehandPage.page.url(),
-              type: "string"
-            }
-          }
-        });
-        try {
-          yield locator[method](...args.map((arg) => (arg == null ? void 0 : arg.toString()) || ""));
-        } catch (e) {
-          this.logger({
-            category: "action",
-            message: "error performing method",
-            level: 1,
-            auxiliary: {
-              error: {
-                value: e.message,
-                type: "string"
-              },
-              trace: {
-                value: e.stack,
-                type: "string"
-              },
-              xpath: {
-                value: xpath,
-                type: "string"
-              },
-              method: {
-                value: method,
-                type: "string"
-              },
-              args: {
-                value: JSON.stringify(args),
-                type: "object"
-              }
-            }
-          });
-          throw new PlaywrightCommandException(e.message);
-        }
-      } else {
-        this.logger({
-          category: "action",
-          message: "chosen method is invalid",
-          level: 1,
-          auxiliary: {
-            method: {
-              value: method,
-              type: "string"
-            }
-          }
-        });
-        throw new PlaywrightCommandMethodNotSupportedException(
-          `Method ${method} not supported`
-        );
+        throw new PlaywrightCommandException(e.message);
       }
-      yield this.stagehandPage._waitForSettledDom(domSettleTimeoutMs);
     });
   }
   _getComponentString(locator) {
@@ -2238,6 +2707,89 @@ var StagehandActHandler = class {
       });
     });
   }
+  handlePossiblePageNavigation(actionDescription, xpath, initialUrl, domSettleTimeoutMs) {
+    return __async(this, null, function* () {
+      this.logger({
+        category: "action",
+        message: `${actionDescription}, checking for page navigation`,
+        level: 1,
+        auxiliary: {
+          xpath: {
+            value: xpath,
+            type: "string"
+          }
+        }
+      });
+      const newOpenedTab = yield Promise.race([
+        new Promise((resolve) => {
+          this.stagehandPage.context.once("page", (page) => resolve(page));
+          setTimeout(() => resolve(null), 1500);
+        })
+      ]);
+      this.logger({
+        category: "action",
+        message: `${actionDescription} complete`,
+        level: 1,
+        auxiliary: {
+          newOpenedTab: {
+            value: newOpenedTab ? "opened a new tab" : "no new tabs opened",
+            type: "string"
+          }
+        }
+      });
+      if (newOpenedTab) {
+        this.logger({
+          category: "action",
+          message: "new page detected (new tab) with URL",
+          level: 1,
+          auxiliary: {
+            url: {
+              value: newOpenedTab.url(),
+              type: "string"
+            }
+          }
+        });
+        yield newOpenedTab.close();
+        yield this.stagehandPage.page.goto(newOpenedTab.url());
+        yield this.stagehandPage.page.waitForLoadState("domcontentloaded");
+      }
+      yield this.stagehandPage._waitForSettledDom(domSettleTimeoutMs).catch((e) => {
+        this.logger({
+          category: "action",
+          message: "wait for settled DOM timeout hit",
+          level: 1,
+          auxiliary: {
+            trace: {
+              value: e.stack,
+              type: "string"
+            },
+            message: {
+              value: e.message,
+              type: "string"
+            }
+          }
+        });
+      });
+      this.logger({
+        category: "action",
+        message: "finished waiting for (possible) page navigation",
+        level: 1
+      });
+      if (this.stagehandPage.page.url() !== initialUrl) {
+        this.logger({
+          category: "action",
+          message: "new page detected with URL",
+          level: 1,
+          auxiliary: {
+            url: {
+              value: this.stagehandPage.page.url(),
+              type: "string"
+            }
+          }
+        });
+      }
+    });
+  }
   act(_0) {
     return __async(this, arguments, function* ({
       action,
@@ -2256,7 +2808,6 @@ var StagehandActHandler = class {
       var _a, _b;
       try {
         yield this.stagehandPage._waitForSettledDom(domSettleTimeoutMs);
-        yield this.stagehandPage.startDomDebug();
         if (timeoutMs && startTime) {
           const elapsedTime = Date.now() - startTime;
           if (elapsedTime > timeoutMs) {
@@ -2324,7 +2875,16 @@ var StagehandActHandler = class {
           logger: this.logger,
           requestId,
           variables,
-          userProvidedInstructions: this.userProvidedInstructions
+          userProvidedInstructions: this.userProvidedInstructions,
+          onActMetrics: (promptTokens, completionTokens, inferenceTimeMs) => {
+            this.stagehand.updateMetrics(
+              "ACT" /* ACT */,
+              promptTokens,
+              completionTokens,
+              inferenceTimeMs
+            );
+          },
+          logInferenceToFile: this.stagehand.logInferenceToFile
         });
         this.logger({
           category: "action",
@@ -2337,7 +2897,6 @@ var StagehandActHandler = class {
             }
           }
         });
-        yield this.stagehandPage.cleanupDomDebug();
         if (!response) {
           if (chunksSeen.length + 1 < chunks.length) {
             chunksSeen.push(chunk);
@@ -2698,7 +3257,6 @@ var StagehandExtractHandler = class {
   extractPageText() {
     return __async(this, null, function* () {
       yield this.stagehandPage._waitForSettledDom();
-      yield this.stagehandPage.startDomDebug();
       const originalDOM = yield this.stagehandPage.page.evaluate(
         () => window.storeDOM(void 0)
       );
@@ -2725,7 +3283,6 @@ var StagehandExtractHandler = class {
         deduplicatedTextAnnotations,
         containerDims.width
       );
-      yield this.stagehandPage.cleanupDomDebug();
       const result = { page_text: formattedText };
       return pageTextSchema.parse(result);
     });
@@ -2753,7 +3310,6 @@ var StagehandExtractHandler = class {
         }
       });
       yield this.stagehandPage._waitForSettledDom(domSettleTimeoutMs);
-      yield this.stagehandPage.startDomDebug();
       const targetXpath = (_a = selector == null ? void 0 : selector.replace(/^xpath=/, "")) != null ? _a : "";
       const originalDOM = yield this.stagehandPage.page.evaluate(
         (xp) => window.storeDOM(xp),
@@ -2827,14 +3383,26 @@ var StagehandExtractHandler = class {
         llmClient,
         requestId,
         userProvidedInstructions: this.userProvidedInstructions,
-        logger: this.logger
+        logger: this.logger,
+        logInferenceToFile: this.stagehand.logInferenceToFile
       });
       const _b = extractionResponse, {
-        metadata: { completed }
+        metadata: { completed },
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        inference_time_ms: inferenceTimeMs
       } = _b, output = __objRest(_b, [
-        "metadata"
+        "metadata",
+        "prompt_tokens",
+        "completion_tokens",
+        "inference_time_ms"
       ]);
-      yield this.stagehandPage.cleanupDomDebug();
+      this.stagehand.updateMetrics(
+        "EXTRACT" /* EXTRACT */,
+        promptTokens,
+        completionTokens,
+        inferenceTimeMs
+      );
       this.logger({
         category: "extraction",
         message: "received extraction response",
@@ -2895,7 +3463,6 @@ var StagehandExtractHandler = class {
         }
       });
       yield this.stagehandPage._waitForSettledDom(domSettleTimeoutMs);
-      yield this.stagehandPage.startDomDebug();
       const { outputString, chunk, chunks } = yield this.stagehand.page.evaluate(
         (chunksSeen2) => window.processDom(chunksSeen2 != null ? chunksSeen2 : []),
         chunksSeen
@@ -2929,14 +3496,26 @@ var StagehandExtractHandler = class {
         requestId,
         isUsingTextExtract: false,
         userProvidedInstructions: this.userProvidedInstructions,
-        logger: this.logger
+        logger: this.logger,
+        logInferenceToFile: this.stagehand.logInferenceToFile
       });
       const _a = extractionResponse, {
-        metadata: { completed }
+        metadata: { completed },
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        inference_time_ms: inferenceTimeMs
       } = _a, output = __objRest(_a, [
-        "metadata"
+        "metadata",
+        "prompt_tokens",
+        "completion_tokens",
+        "inference_time_ms"
       ]);
-      yield this.stagehandPage.cleanupDomDebug();
+      this.stagehand.updateMetrics(
+        "EXTRACT" /* EXTRACT */,
+        promptTokens,
+        completionTokens,
+        inferenceTimeMs
+      );
       this.logger({
         category: "extraction",
         message: "received extraction response",
@@ -3463,8 +4042,20 @@ var StagehandObserveHandler = class {
         userProvidedInstructions: this.userProvidedInstructions,
         logger: this.logger,
         isUsingAccessibilityTree: useAccessibilityTree,
-        returnAction
+        returnAction,
+        logInferenceToFile: this.stagehand.logInferenceToFile
       });
+      const {
+        prompt_tokens = 0,
+        completion_tokens = 0,
+        inference_time_ms = 0
+      } = observationResponse;
+      this.stagehand.updateMetrics(
+        "OBSERVE" /* OBSERVE */,
+        prompt_tokens,
+        completion_tokens,
+        inference_time_ms
+      );
       if (iframes.length > 0) {
         iframes.forEach((iframe) => {
           observationResponse.elements.push({
@@ -3522,7 +4113,6 @@ var StagehandObserveHandler = class {
           });
         }))
       );
-      yield this.stagehandPage.cleanupDomDebug();
       this.logger({
         category: "observation",
         message: "found elements",
@@ -3581,6 +4171,7 @@ var StagehandPage = class _StagehandPage {
     this.waitForCaptchaSolves = waitForCaptchaSolves != null ? waitForCaptchaSolves : false;
     if (this.llmClient) {
       this.actHandler = new StagehandActHandler({
+        stagehand: this.stagehand,
         verbose: this.stagehand.verbose,
         llmProvider: this.stagehand.llmProvider,
         enableCaching: this.stagehand.enableCaching,
@@ -3632,10 +4223,11 @@ var StagehandPage = class _StagehandPage {
       ).init();
       this.intPage = newStagehandPage.page;
       if (this.stagehand.debugDom) {
-        yield this.intPage.evaluate(
-          (debugDom) => window.showChunks = debugDom,
-          this.stagehand.debugDom
-        );
+        this.stagehand.log({
+          category: "deprecation",
+          message: "Warning: debugDom is not supported in this version of Stagehand",
+          level: 1
+        });
       }
       yield this.intPage.waitForLoadState("domcontentloaded");
       yield this._waitForSettledDom();
@@ -3713,6 +4305,26 @@ var StagehandPage = class _StagehandPage {
               return method.call(this, options);
             });
           }
+          if (prop === "screenshot") {
+            return (..._0) => __async(this, [..._0], function* (options = {}) {
+              const cdpOptions = {
+                format: options.type === "jpeg" ? "jpeg" : "png",
+                quality: options.quality,
+                clip: options.clip,
+                omitBackground: options.omitBackground,
+                fromSurface: true
+              };
+              if (options.fullPage) {
+                cdpOptions.captureBeyondViewport = true;
+              }
+              const data = yield this.sendCDP(
+                "Page.captureScreenshot",
+                cdpOptions
+              );
+              const buffer = Buffer.from(data.data, "base64");
+              return buffer;
+            });
+          }
           if (prop === "goto") {
             return (url, options) => __async(this, null, function* () {
               this.intContext.setActivePage(this);
@@ -3727,10 +4339,11 @@ var StagehandPage = class _StagehandPage {
                 yield this._refreshPageFromAPI();
               } else {
                 if (stagehand.debugDom) {
-                  yield target.evaluate(
-                    (debugDom) => window.showChunks = debugDom,
-                    stagehand.debugDom
-                  );
+                  this.stagehand.log({
+                    category: "deprecation",
+                    message: "Warning: debugDom is not supported in this version of Stagehand",
+                    level: 1
+                  });
                 }
                 yield target.waitForLoadState("domcontentloaded");
                 yield this._waitForSettledDom();
@@ -3841,50 +4454,6 @@ var StagehandPage = class _StagehandPage {
               type: "string"
             }
           }
-        });
-      }
-    });
-  }
-  startDomDebug() {
-    return __async(this, null, function* () {
-      if (this.stagehand.debugDom) {
-        try {
-          yield this.page.evaluate(() => {
-            if (typeof window.debugDom === "function") {
-              window.debugDom();
-            } else {
-              this.stagehand.log({
-                category: "dom",
-                message: "debugDom is not defined",
-                level: 1
-              });
-            }
-          }).catch(() => {
-          });
-        } catch (e) {
-          this.stagehand.log({
-            category: "dom",
-            message: "Error in startDomDebug",
-            level: 1,
-            auxiliary: {
-              error: {
-                value: e.message,
-                type: "string"
-              },
-              trace: {
-                value: e.stack,
-                type: "string"
-              }
-            }
-          });
-        }
-      }
-    });
-  }
-  cleanupDomDebug() {
-    return __async(this, null, function* () {
-      if (this.stagehand.debugDom) {
-        yield this.page.evaluate(() => window.cleanupDebug()).catch(() => {
         });
       }
     });
@@ -4001,6 +4570,9 @@ var StagehandPage = class _StagehandPage {
       }
       yield clearOverlays(this.page);
       if (!instructionOrOptions) {
+        if (this.api) {
+          return this.api.extract({});
+        }
         return this.extractHandler.extract();
       }
       const options = typeof instructionOrOptions === "string" ? {
@@ -4323,16 +4895,11 @@ var StagehandAPI = class {
       verbose,
       debugDom,
       systemPrompt,
+      selfHeal,
+      waitForCaptchaSolves,
+      actionTimeoutMs,
       browserbaseSessionCreateParams
     }) {
-      const whitelistResponse = yield this.request("/healthcheck");
-      if (whitelistResponse.status === 401) {
-        throw new Error(
-          "Unauthorized. Ensure you provided a valid API key and that it is whitelisted."
-        );
-      } else if (whitelistResponse.status !== 200) {
-        throw new Error(`Unknown error: ${whitelistResponse.status}`);
-      }
       const sessionResponse = yield this.request("/sessions/start", {
         method: "POST",
         body: JSON.stringify({
@@ -4341,13 +4908,20 @@ var StagehandAPI = class {
           verbose,
           debugDom,
           systemPrompt,
+          selfHeal,
+          waitForCaptchaSolves,
+          actionTimeoutMs,
           browserbaseSessionCreateParams
         }),
         headers: {
           "x-model-api-key": modelApiKey
         }
       });
-      if (sessionResponse.status !== 200) {
+      if (sessionResponse.status === 401) {
+        throw new Error(
+          "Unauthorized. Ensure you provided a valid API key and that it is whitelisted."
+        );
+      } else if (sessionResponse.status !== 200) {
         console.log(yield sessionResponse.text());
         throw new Error(`Unknown error: ${sessionResponse.status}`);
       }
@@ -4369,6 +4943,12 @@ var StagehandAPI = class {
   }
   extract(options) {
     return __async(this, null, function* () {
+      if (!options.schema) {
+        return this.execute({
+          method: "extract",
+          args: {}
+        });
+      }
       const parsedSchema = (0, import_zod_to_json_schema.default)(options.schema);
       return this.execute({
         method: "extract",
@@ -4389,6 +4969,14 @@ var StagehandAPI = class {
       return this.execute({
         method: "navigate",
         args: { url, options }
+      });
+    });
+  }
+  agentExecute(agentConfig, executeOptions) {
+    return __async(this, null, function* () {
+      return this.execute({
+        method: "agentExecute",
+        args: { agentConfig, executeOptions }
       });
     });
   }
@@ -4457,7 +5045,7 @@ var StagehandAPI = class {
     });
   }
   request(_0) {
-    return __async(this, arguments, function* (path3, options = {}) {
+    return __async(this, arguments, function* (path4, options = {}) {
       const defaultHeaders = {
         "x-bb-api-key": this.apiKey,
         "x-bb-project-id": this.projectId,
@@ -4468,7 +5056,7 @@ var StagehandAPI = class {
       if (options.method === "POST" && options.body) {
         defaultHeaders["Content-Type"] = "application/json";
       }
-      const response = yield fetch(`${process.env.STAGEHAND_API_URL}${path3}`, __spreadProps(__spreadValues({}, options), {
+      const response = yield fetch(`${process.env.STAGEHAND_API_URL}${path4}`, __spreadProps(__spreadValues({}, options), {
         headers: __spreadValues(__spreadValues({}, defaultHeaders), options.headers)
       }));
       return response;
@@ -4477,7 +5065,7 @@ var StagehandAPI = class {
 };
 
 // lib/dom/build/scriptContent.ts
-var scriptContent = '(() => {\n  // lib/dom/elementCheckUtils.ts\n  function isElementNode(node) {\n    return node.nodeType === Node.ELEMENT_NODE;\n  }\n  function isTextNode(node) {\n    return node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim());\n  }\n  var leafElementDenyList = ["SVG", "IFRAME", "SCRIPT", "STYLE", "LINK"];\n  var interactiveElementTypes = [\n    "A",\n    "BUTTON",\n    "DETAILS",\n    "EMBED",\n    "INPUT",\n    "LABEL",\n    "MENU",\n    "MENUITEM",\n    "OBJECT",\n    "SELECT",\n    "TEXTAREA",\n    "SUMMARY"\n  ];\n  var interactiveRoles = [\n    "button",\n    "menu",\n    "menuitem",\n    "link",\n    "checkbox",\n    "radio",\n    "slider",\n    "tab",\n    "tabpanel",\n    "textbox",\n    "combobox",\n    "grid",\n    "listbox",\n    "option",\n    "progressbar",\n    "scrollbar",\n    "searchbox",\n    "switch",\n    "tree",\n    "treeitem",\n    "spinbutton",\n    "tooltip"\n  ];\n  var interactiveAriaRoles = ["menu", "menuitem", "button"];\n  var isVisible = (element) => {\n    const rect = element.getBoundingClientRect();\n    if (rect.width === 0 || rect.height === 0 || rect.top < 0 || rect.top > window.innerHeight) {\n      return false;\n    }\n    if (!isTopElement(element, rect)) {\n      return false;\n    }\n    const visible = element.checkVisibility({\n      checkOpacity: true,\n      checkVisibilityCSS: true\n    });\n    return visible;\n  };\n  var isTextVisible = (element) => {\n    const range = document.createRange();\n    range.selectNodeContents(element);\n    const rect = range.getBoundingClientRect();\n    if (rect.width === 0 || rect.height === 0 || rect.top < 0 || rect.top > window.innerHeight) {\n      return false;\n    }\n    const parent = element.parentElement;\n    if (!parent) {\n      return false;\n    }\n    const visible = parent.checkVisibility({\n      checkOpacity: true,\n      checkVisibilityCSS: true\n    });\n    return visible;\n  };\n  function isTopElement(elem, rect) {\n    const points = [\n      { x: rect.left + rect.width * 0.25, y: rect.top + rect.height * 0.25 },\n      { x: rect.left + rect.width * 0.75, y: rect.top + rect.height * 0.25 },\n      { x: rect.left + rect.width * 0.25, y: rect.top + rect.height * 0.75 },\n      { x: rect.left + rect.width * 0.75, y: rect.top + rect.height * 0.75 },\n      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }\n    ];\n    return points.some((point) => {\n      const topEl = document.elementFromPoint(point.x, point.y);\n      let current = topEl;\n      while (current && current !== document.body) {\n        if (current.isSameNode(elem)) {\n          return true;\n        }\n        current = current.parentElement;\n      }\n      return false;\n    });\n  }\n  var isActive = (element) => {\n    if (element.hasAttribute("disabled") || element.hasAttribute("hidden") || element.getAttribute("aria-disabled") === "true") {\n      return false;\n    }\n    return true;\n  };\n  var isInteractiveElement = (element) => {\n    const elementType = element.tagName;\n    const elementRole = element.getAttribute("role");\n    const elementAriaRole = element.getAttribute("aria-role");\n    return elementType && interactiveElementTypes.includes(elementType) || elementRole && interactiveRoles.includes(elementRole) || elementAriaRole && interactiveAriaRoles.includes(elementAriaRole);\n  };\n  var isLeafElement = (element) => {\n    if (element.textContent === "") {\n      return false;\n    }\n    if (element.childNodes.length === 0) {\n      return !leafElementDenyList.includes(element.tagName);\n    }\n    if (element.childNodes.length === 1 && isTextNode(element.childNodes[0])) {\n      return true;\n    }\n    return false;\n  };\n\n  // lib/dom/xpathUtils.ts\n  function getParentElement(node) {\n    return isElementNode(node) ? node.parentElement : node.parentNode;\n  }\n  function getCombinations(attributes, size) {\n    const results = [];\n    function helper(start, combo) {\n      if (combo.length === size) {\n        results.push([...combo]);\n        return;\n      }\n      for (let i = start; i < attributes.length; i++) {\n        combo.push(attributes[i]);\n        helper(i + 1, combo);\n        combo.pop();\n      }\n    }\n    helper(0, []);\n    return results;\n  }\n  function isXPathFirstResultElement(xpath, target) {\n    try {\n      const result = document.evaluate(\n        xpath,\n        document.documentElement,\n        null,\n        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,\n        null\n      );\n      return result.snapshotItem(0) === target;\n    } catch (error) {\n      console.warn(`Invalid XPath expression: ${xpath}`, error);\n      return false;\n    }\n  }\n  function escapeXPathString(value) {\n    if (value.includes("\'")) {\n      if (value.includes(\'"\')) {\n        return "concat(" + value.split(/(\'+)/).map((part) => {\n          if (part === "\'") {\n            return `"\'"`;\n          } else if (part.startsWith("\'") && part.endsWith("\'")) {\n            return `"${part}"`;\n          } else {\n            return `\'${part}\'`;\n          }\n        }).join(",") + ")";\n      } else {\n        return `"${value}"`;\n      }\n    } else {\n      return `\'${value}\'`;\n    }\n  }\n  async function generateXPathsForElement(element) {\n    if (!element) return [];\n    const [complexXPath, standardXPath, idBasedXPath] = await Promise.all([\n      generateComplexXPath(element),\n      generateStandardXPath(element),\n      generatedIdBasedXPath(element)\n    ]);\n    return [standardXPath, ...idBasedXPath ? [idBasedXPath] : [], complexXPath];\n  }\n  async function generateComplexXPath(element) {\n    const parts = [];\n    let currentElement = element;\n    while (currentElement && (isTextNode(currentElement) || isElementNode(currentElement))) {\n      if (isElementNode(currentElement)) {\n        const el = currentElement;\n        let selector = el.tagName.toLowerCase();\n        const attributePriority = [\n          "data-qa",\n          "data-component",\n          "data-role",\n          "role",\n          "aria-role",\n          "type",\n          "name",\n          "aria-label",\n          "placeholder",\n          "title",\n          "alt"\n        ];\n        const attributes = attributePriority.map((attr) => {\n          let value = el.getAttribute(attr);\n          if (attr === "href-full" && value) {\n            value = el.getAttribute("href");\n          }\n          return value ? { attr: attr === "href-full" ? "href" : attr, value } : null;\n        }).filter((attr) => attr !== null);\n        let uniqueSelector = "";\n        for (let i = 1; i <= attributes.length; i++) {\n          const combinations = getCombinations(attributes, i);\n          for (const combo of combinations) {\n            const conditions = combo.map((a) => `@${a.attr}=${escapeXPathString(a.value)}`).join(" and ");\n            const xpath2 = `//${selector}[${conditions}]`;\n            if (isXPathFirstResultElement(xpath2, el)) {\n              uniqueSelector = xpath2;\n              break;\n            }\n          }\n          if (uniqueSelector) break;\n        }\n        if (uniqueSelector) {\n          parts.unshift(uniqueSelector.replace("//", ""));\n          break;\n        } else {\n          const parent = getParentElement(el);\n          if (parent) {\n            const siblings = Array.from(parent.children).filter(\n              (sibling) => sibling.tagName === el.tagName\n            );\n            const index = siblings.indexOf(el) + 1;\n            selector += siblings.length > 1 ? `[${index}]` : "";\n          }\n          parts.unshift(selector);\n        }\n      }\n      currentElement = getParentElement(currentElement);\n    }\n    const xpath = "//" + parts.join("/");\n    return xpath;\n  }\n  async function generateStandardXPath(element) {\n    const parts = [];\n    while (element && (isTextNode(element) || isElementNode(element))) {\n      let index = 0;\n      let hasSameTypeSiblings = false;\n      const siblings = element.parentElement ? Array.from(element.parentElement.childNodes) : [];\n      for (let i = 0; i < siblings.length; i++) {\n        const sibling = siblings[i];\n        if (sibling.nodeType === element.nodeType && sibling.nodeName === element.nodeName) {\n          index = index + 1;\n          hasSameTypeSiblings = true;\n          if (sibling.isSameNode(element)) {\n            break;\n          }\n        }\n      }\n      if (element.nodeName !== "#text") {\n        const tagName = element.nodeName.toLowerCase();\n        const pathIndex = hasSameTypeSiblings ? `[${index}]` : "";\n        parts.unshift(`${tagName}${pathIndex}`);\n      }\n      element = element.parentElement;\n    }\n    return parts.length ? `/${parts.join("/")}` : "";\n  }\n  async function generatedIdBasedXPath(element) {\n    if (isElementNode(element) && element.id) {\n      return `//*[@id=\'${element.id}\']`;\n    }\n    return null;\n  }\n\n  // lib/dom/utils.ts\n  async function waitForDomSettle() {\n    return new Promise((resolve) => {\n      const createTimeout = () => {\n        return setTimeout(() => {\n          resolve();\n        }, 2e3);\n      };\n      let timeout = createTimeout();\n      const observer = new MutationObserver(() => {\n        clearTimeout(timeout);\n        timeout = createTimeout();\n      });\n      observer.observe(window.document.body, { childList: true, subtree: true });\n    });\n  }\n  window.waitForDomSettle = waitForDomSettle;\n  function calculateViewportHeight() {\n    return Math.ceil(window.innerHeight * 0.75);\n  }\n  function canElementScroll(elem) {\n    if (typeof elem.scrollTo !== "function") {\n      console.warn("canElementScroll: .scrollTo is not a function.");\n      return false;\n    }\n    try {\n      const originalTop = elem.scrollTop;\n      elem.scrollTo({\n        top: originalTop + 100,\n        left: 0,\n        behavior: "instant"\n      });\n      if (elem.scrollTop === originalTop) {\n        throw new Error("scrollTop did not change");\n      }\n      elem.scrollTo({\n        top: originalTop,\n        left: 0,\n        behavior: "instant"\n      });\n      return true;\n    } catch (error) {\n      console.warn("canElementScroll error:", error.message || error);\n      return false;\n    }\n  }\n  function getNodeFromXpath(xpath) {\n    return document.evaluate(\n      xpath,\n      document.documentElement,\n      null,\n      XPathResult.FIRST_ORDERED_NODE_TYPE,\n      null\n    ).singleNodeValue;\n  }\n\n  // lib/dom/candidateCollector.ts\n  var xpathCache = /* @__PURE__ */ new Map();\n  async function collectCandidateElements(candidateContainerRoot, indexOffset = 0) {\n    const DOMQueue = [...candidateContainerRoot.childNodes];\n    const candidateElements = [];\n    while (DOMQueue.length > 0) {\n      const node = DOMQueue.pop();\n      let shouldAdd = false;\n      if (node && isElementNode(node)) {\n        for (let i = node.childNodes.length - 1; i >= 0; i--) {\n          DOMQueue.push(node.childNodes[i]);\n        }\n        if (isInteractiveElement(node)) {\n          if (isActive(node) && isVisible(node)) {\n            shouldAdd = true;\n          }\n        }\n        if (isLeafElement(node)) {\n          if (isActive(node) && isVisible(node)) {\n            shouldAdd = true;\n          }\n        }\n      }\n      if (node && isTextNode(node) && isTextVisible(node)) {\n        shouldAdd = true;\n      }\n      if (shouldAdd) {\n        candidateElements.push(node);\n      }\n    }\n    const selectorMap = {};\n    let outputString = "";\n    const xpathLists = await Promise.all(\n      candidateElements.map((elem) => {\n        if (xpathCache.has(elem)) {\n          return Promise.resolve(xpathCache.get(elem));\n        }\n        return generateXPathsForElement(elem).then((xpaths) => {\n          xpathCache.set(elem, xpaths);\n          return xpaths;\n        });\n      })\n    );\n    candidateElements.forEach((elem, idx) => {\n      const xpaths = xpathLists[idx];\n      let elemOutput = "";\n      if (isTextNode(elem)) {\n        const textContent = elem.textContent?.trim();\n        if (textContent) {\n          elemOutput += `${idx + indexOffset}:${textContent}\n`;\n        }\n      } else if (isElementNode(elem)) {\n        const tagName = elem.tagName.toLowerCase();\n        const attributes = collectEssentialAttributes(elem);\n        const opening = `<${tagName}${attributes ? " " + attributes : ""}>`;\n        const closing = `</${tagName}>`;\n        const textContent = elem.textContent?.trim() || "";\n        elemOutput += `${idx + indexOffset}:${opening}${textContent}${closing}\n`;\n      }\n      outputString += elemOutput;\n      selectorMap[idx + indexOffset] = xpaths;\n    });\n    return { outputString, selectorMap };\n  }\n  function collectEssentialAttributes(element) {\n    const essentialAttributes = [\n      "id",\n      "class",\n      "href",\n      "src",\n      "aria-label",\n      "aria-name",\n      "aria-role",\n      "aria-description",\n      "aria-expanded",\n      "aria-haspopup",\n      "type",\n      "value"\n    ];\n    const attrs = essentialAttributes.map((attr) => {\n      const value = element.getAttribute(attr);\n      return value ? `${attr}="${value}"` : "";\n    }).filter((attr) => attr !== "");\n    Array.from(element.attributes).forEach((attr) => {\n      if (attr.name.startsWith("data-")) {\n        attrs.push(`${attr.name}="${attr.value}"`);\n      }\n    });\n    return attrs.join(" ");\n  }\n\n  // lib/dom/StagehandContainer.ts\n  var StagehandContainer = class {\n    /**\n     * Collects multiple "DOM chunks" by scrolling through the container\n     * in increments from `startOffset` to `endOffset`. At each scroll\n     * position, the function extracts a snapshot of "candidate elements"\n     * using `collectCandidateElements`.\n     *\n     * Each chunk represents a subset of the DOM at a particular\n     * vertical scroll offset, including:\n     *\n     * - `startOffset` & `endOffset`: The vertical scroll bounds for this chunk.\n     * - `outputString`: A serialized representation of extracted DOM text.\n     * - `selectorMap`: A mapping of temporary indices to the actual element(s)\n     *   that were collected in this chunk, useful for further processing.\n     *\n     * @param startOffset - The initial scroll offset from which to begin collecting.\n     * @param endOffset - The maximum scroll offset to collect up to.\n     * @param chunkSize - The vertical increment to move between each chunk.\n     * @param scrollTo - Whether we should scroll to the chunk\n     * @param scrollBackToTop - Whether to scroll the container back to the top once finished.\n     * @param candidateContainer - Optionally, a specific container element within\n     * the root for which to collect data. If omitted, uses `this.getRootElement()`.\n     *\n     * @returns A promise that resolves with an array of `DomChunk` objects.\n     *\n     * ### How It Works\n     *\n     * 1. **Scroll Range Calculation**:\n     *    - Computes `maxOffset` as the maximum offset that can be scrolled\n     *      (`scrollHeight - viewportHeight`).\n     *    - Restricts `endOffset` to not exceed `maxOffset`.\n     *\n     * 2. **Chunk Iteration**:\n     *    - Loops from `startOffset` to `endOffset` in steps of `chunkSize`.\n     *    - For each offset `current`, we call `this.scrollTo(current)`\n     *      to position the container.\n     *\n     * 3. **Element Collection**:\n     *    - Invokes `collectCandidateElements` on either `candidateContainer`\n     *      (if provided) or the result of `this.getRootElement()`.\n     *    - This returns both an `outputString` (serialized text)\n     *      and a `selectorMap` of found elements for that section of the DOM.\n     *\n     * 4. **Chunk Assembly**:\n     *    - Creates a `DomChunk` object for the current offset range,\n     *      storing `outputString`, `selectorMap`, and scroll offsets.\n     *    - Pushes it onto the `chunks` array.\n     *\n     * 5. **Scroll Reset**:\n     *    - Once iteration completes, if `scrollBackToTop` is `true`,\n     *      we scroll back to offset `0`.\n     */\n    async collectDomChunks(startOffset, endOffset, chunkSize, scrollTo = true, scrollBackToTop = true, candidateContainer) {\n      const chunks = [];\n      let maxOffset = this.getScrollHeight();\n      let current = startOffset;\n      let finalEnd = endOffset;\n      let index = 0;\n      while (current <= finalEnd) {\n        if (scrollTo) {\n          await this.scrollTo(current);\n        }\n        const rootCandidate = candidateContainer || this.getRootElement();\n        const { outputString, selectorMap } = await collectCandidateElements(\n          rootCandidate,\n          index\n        );\n        chunks.push({\n          startOffset: current,\n          endOffset: current + chunkSize,\n          outputString,\n          selectorMap\n        });\n        index += Object.keys(selectorMap).length;\n        current += chunkSize;\n        if (!candidateContainer && current > endOffset) {\n          const newScrollHeight = this.getScrollHeight();\n          if (newScrollHeight > maxOffset) {\n            maxOffset = newScrollHeight;\n          }\n          if (newScrollHeight > finalEnd) {\n            finalEnd = newScrollHeight;\n          }\n        }\n      }\n      if (scrollBackToTop) {\n        await this.scrollTo(0);\n      }\n      return chunks;\n    }\n  };\n\n  // lib/dom/GlobalPageContainer.ts\n  var GlobalPageContainer = class extends StagehandContainer {\n    getRootElement() {\n      return document.body;\n    }\n    /**\n     * Calculates the viewport height for the entire page, using a helper.\n     * The helper returns 75% of the window height, to ensure that we don\'t\n     * miss any content that may be behind sticky elements like nav bars.\n     *\n     * @returns The current height of the global viewport, in pixels.\n     */\n    getViewportHeight() {\n      return calculateViewportHeight();\n    }\n    getScrollHeight() {\n      return document.documentElement.scrollHeight;\n    }\n    getScrollPosition() {\n      return window.scrollY;\n    }\n    /**\n     * Smoothly scrolls the page to the specified vertical offset, and then\n     * waits until scrolling has stopped. There is a delay built in to allow\n     * for lazy loading and other asynchronous content to load.\n     *\n     * @param offset - The desired scroll offset from the top of the page.\n     * @returns A promise that resolves once scrolling is complete.\n     */\n    async scrollTo(offset) {\n      await new Promise((resolve) => setTimeout(resolve, 1500));\n      window.scrollTo({ top: offset, behavior: "smooth" });\n      await this.waitForScrollEnd();\n    }\n    /**\n     * Scrolls the page so that a given element is visible, or scrolls to the top\n     * if no element is specified. Uses smooth scrolling and waits for it to complete.\n     *\n     * @param element - The DOM element to bring into view. If omitted, scrolls to top.\n     * @returns A promise that resolves once scrolling is complete.\n     */\n    async scrollIntoView(element) {\n      if (!element) {\n        window.scrollTo({ top: 0, behavior: "smooth" });\n      } else {\n        const rect = element.getBoundingClientRect();\n        const currentY = window.scrollY || document.documentElement.scrollTop;\n        const elementY = currentY + rect.top - window.innerHeight * 0.25;\n        window.scrollTo({ top: elementY, behavior: "smooth" });\n      }\n      await this.waitForScrollEnd();\n    }\n    /**\n     * Internal helper that waits until the global scroll activity has stopped.\n     * It listens for scroll events, resetting a short timer every time a scroll\n     * occurs, and resolves once there\'s no scroll for ~100ms.\n     *\n     * @returns A promise that resolves when scrolling has finished.\n     */\n    async waitForScrollEnd() {\n      return new Promise((resolve) => {\n        let scrollEndTimer;\n        const handleScroll = () => {\n          clearTimeout(scrollEndTimer);\n          scrollEndTimer = window.setTimeout(() => {\n            window.removeEventListener("scroll", handleScroll);\n            resolve();\n          }, 100);\n        };\n        window.addEventListener("scroll", handleScroll, { passive: true });\n        handleScroll();\n      });\n    }\n  };\n\n  // lib/dom/ElementContainer.ts\n  var ElementContainer = class extends StagehandContainer {\n    /**\n     * Creates an instance of `ElementContainer` tied to a specific element.\n     * @param el - The scrollable `HTMLElement` that this container controls.\n     */\n    constructor(el) {\n      super();\n      this.el = el;\n    }\n    getRootElement() {\n      return this.el;\n    }\n    /**\n     * Retrieves the height of the visible viewport within this element\n     * (`el.clientHeight`).\n     *\n     * @returns The visible (client) height of the element, in pixels.\n     */\n    getViewportHeight() {\n      return this.el.clientHeight;\n    }\n    getScrollHeight() {\n      return this.el.scrollHeight;\n    }\n    /**\n     * Returns the element\'s current vertical scroll offset.\n     */\n    getScrollPosition() {\n      return this.el.scrollTop;\n    }\n    /**\n     * Smoothly scrolls this element to the specified vertical offset, and\n     * waits for the scrolling to complete.\n     *\n     * @param offset - The scroll offset (in pixels) from the top of the element.\n     * @returns A promise that resolves once scrolling is finished.\n     */\n    async scrollTo(offset) {\n      await new Promise((resolve) => setTimeout(resolve, 1500));\n      this.el.scrollTo({ top: offset, behavior: "smooth" });\n      await this.waitForScrollEnd();\n    }\n    /**\n     * Scrolls this element so that the given `element` is visible, or\n     * scrolls to the top if none is provided. Smoothly animates the scroll\n     * and waits until it finishes.\n     *\n     * @param element - The child element to bring into view. If omitted, scrolls to top.\n     * @returns A promise that resolves once scrolling completes.\n     */\n    async scrollIntoView(element) {\n      if (!element) {\n        this.el.scrollTo({ top: 0, behavior: "smooth" });\n      } else {\n        element.scrollIntoView();\n      }\n      await this.waitForScrollEnd();\n    }\n    /**\n     * Internal helper that waits until scrolling in this element has\n     * fully stopped. It listens for scroll events on the element,\n     * resetting a short timer every time a scroll occurs, and resolves\n     * once there\'s no scroll for ~100ms.\n     *\n     * @returns A promise that resolves when scrolling has finished.\n     */\n    async waitForScrollEnd() {\n      return new Promise((resolve) => {\n        let scrollEndTimer;\n        const handleScroll = () => {\n          clearTimeout(scrollEndTimer);\n          scrollEndTimer = window.setTimeout(() => {\n            this.el.removeEventListener("scroll", handleScroll);\n            resolve();\n          }, 100);\n        };\n        this.el.addEventListener("scroll", handleScroll, { passive: true });\n        handleScroll();\n      });\n    }\n  };\n\n  // lib/dom/containerFactory.ts\n  function createStagehandContainer(obj) {\n    if (obj instanceof Window) {\n      return new GlobalPageContainer();\n    } else {\n      return new ElementContainer(obj);\n    }\n  }\n\n  // lib/dom/process.ts\n  function getScrollableElements(topN) {\n    const docEl = document.documentElement;\n    const scrollableElements = [docEl];\n    const allElements = document.querySelectorAll("*");\n    for (const elem of allElements) {\n      const style = window.getComputedStyle(elem);\n      const overflowY = style.overflowY;\n      const isPotentiallyScrollable = overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay";\n      if (isPotentiallyScrollable) {\n        const candidateScrollDiff = elem.scrollHeight - elem.clientHeight;\n        if (candidateScrollDiff > 0 && canElementScroll(elem)) {\n          scrollableElements.push(elem);\n        }\n      }\n    }\n    scrollableElements.sort((a, b) => b.scrollHeight - a.scrollHeight);\n    if (topN !== void 0) {\n      return scrollableElements.slice(0, topN);\n    }\n    return scrollableElements;\n  }\n  async function getScrollableElementXpaths(topN) {\n    const scrollableElems = getScrollableElements(topN);\n    const xpaths = [];\n    for (const elem of scrollableElems) {\n      const allXPaths = await generateXPathsForElement(elem);\n      const firstXPath = allXPaths?.[0] || "";\n      xpaths.push(firstXPath);\n    }\n    return xpaths;\n  }\n  function getNearestScrollableParent(el) {\n    const allScrollables = getScrollableElements();\n    let current = el;\n    while (current) {\n      if (allScrollables.includes(current)) {\n        return current;\n      }\n      current = current.parentElement;\n    }\n    return document.documentElement;\n  }\n  async function processDom(chunksSeen) {\n    const { chunk, chunksArray } = await pickChunk(chunksSeen);\n    const container = new GlobalPageContainer();\n    const chunkSize = container.getViewportHeight();\n    const startOffset = chunk * chunkSize;\n    const endOffset = startOffset;\n    const domChunks = await container.collectDomChunks(\n      startOffset,\n      endOffset,\n      chunkSize,\n      true,\n      false,\n      // scrollBackToTop\n      container.getRootElement()\n      // BFS entire doc\n    );\n    const [domChunk] = domChunks;\n    if (!domChunk) {\n      return {\n        outputString: "",\n        selectorMap: {},\n        chunk,\n        chunks: chunksArray\n      };\n    }\n    console.log("Extracted DOM chunk:\\n", domChunk.outputString);\n    return {\n      outputString: domChunk.outputString,\n      selectorMap: domChunk.selectorMap,\n      chunk,\n      chunks: chunksArray\n    };\n  }\n  async function processAllOfDom(xpath) {\n    let candidateElementContainer = null;\n    let scrollTarget;\n    if (xpath) {\n      const node = getNodeFromXpath(xpath);\n      if (node) {\n        candidateElementContainer = node;\n        console.log(`Found element via XPath: ${xpath}`);\n        const scrollableElem = getNearestScrollableParent(\n          candidateElementContainer\n        );\n        if (scrollableElem === document.documentElement) {\n          scrollTarget = new GlobalPageContainer();\n        } else {\n          scrollTarget = new ElementContainer(scrollableElem);\n        }\n        await scrollTarget.scrollIntoView(candidateElementContainer);\n        const startOffset2 = scrollTarget.getScrollPosition();\n        const scrollTargetHeight = scrollTarget.getViewportHeight();\n        const candidateElementContainerHeight = candidateElementContainer.scrollHeight;\n        if (candidateElementContainerHeight <= scrollTargetHeight) {\n          console.log(\n            "Element is smaller/equal to container\\u2019s viewport. Doing single chunk."\n          );\n          const domChunks2 = await scrollTarget.collectDomChunks(\n            startOffset2,\n            // startOffset\n            startOffset2,\n            // endOffset => same as start => 1 chunk\n            1,\n            // chunkSize=1 => doesn\'t matter, because start==end means exactly 1 iteration\n            true,\n            true,\n            candidateElementContainer\n          );\n          const singleChunkOutput = combineChunks(domChunks2);\n          console.log(\n            "Final output (single-chunk):",\n            singleChunkOutput.outputString\n          );\n          return singleChunkOutput;\n        }\n        console.log("Element is bigger. Doing multi-chunk approach.");\n      } else {\n        console.warn(`XPath not found: ${xpath}. Using entire doc.`);\n      }\n    } else {\n      const scrollableElems = getScrollableElements(1);\n      const mainScrollable = scrollableElems[0];\n      scrollTarget = mainScrollable === document.documentElement ? createStagehandContainer(window) : createStagehandContainer(mainScrollable);\n    }\n    const startOffset = scrollTarget.getScrollPosition();\n    const viewportHeight = scrollTarget.getViewportHeight();\n    const maxScroll = candidateElementContainer ? startOffset + candidateElementContainer.scrollHeight : scrollTarget.getScrollHeight();\n    const chunkSize = viewportHeight;\n    console.log("processAllOfDom chunk-based from", startOffset, "to", maxScroll);\n    const domChunks = await scrollTarget.collectDomChunks(\n      startOffset,\n      maxScroll,\n      chunkSize,\n      true,\n      true,\n      candidateElementContainer ?? void 0\n    );\n    const finalOutput = combineChunks(domChunks);\n    console.log(\n      "All DOM elements combined (chunk-based):",\n      finalOutput.outputString\n    );\n    return finalOutput;\n  }\n  function combineChunks(domChunks) {\n    const outputString = domChunks.map((c) => c.outputString).join("");\n    let finalSelectorMap = {};\n    domChunks.forEach((c) => {\n      finalSelectorMap = { ...finalSelectorMap, ...c.selectorMap };\n    });\n    return { outputString, selectorMap: finalSelectorMap };\n  }\n  function storeDOM(xpath) {\n    if (!xpath) {\n      const originalDOM = document.body.cloneNode(true);\n      console.log("DOM state stored (root).");\n      return originalDOM.outerHTML;\n    } else {\n      const node = getNodeFromXpath(xpath);\n      if (!node) {\n        console.error(\n          `storeDOM: No element found for xpath: ${xpath}. Returning empty string.`\n        );\n        return "";\n      }\n      console.log(`DOM state stored (element at xpath: ${xpath}).`);\n      return node.outerHTML;\n    }\n  }\n  function restoreDOM(storedDOM, xpath) {\n    console.log("Restoring DOM...");\n    if (!storedDOM) {\n      console.error("No DOM state was provided.");\n      return;\n    }\n    if (!xpath) {\n      document.body.innerHTML = storedDOM;\n      console.log("DOM restored (root).");\n    } else {\n      const node = getNodeFromXpath(xpath);\n      if (!node) {\n        console.error(\n          `restoreDOM: No element found for xpath: ${xpath}. Cannot restore.`\n        );\n        return;\n      }\n      node.outerHTML = storedDOM;\n      console.log(`DOM restored (element at xpath: ${xpath}).`);\n    }\n  }\n  function createTextBoundingBoxes(xpath) {\n    const style = document.createElement("style");\n    document.head.appendChild(style);\n    if (style.sheet) {\n      style.sheet.insertRule(\n        `\n      .stagehand-highlighted-word, .stagehand-space {\n        border: 0px solid orange;\n        display: inline-block !important;\n        visibility: visible;\n      }\n    `,\n        0\n      );\n      style.sheet.insertRule(\n        `\n        code .stagehand-highlighted-word, code .stagehand-space,\n        pre .stagehand-highlighted-word, pre .stagehand-space {\n          white-space: pre-wrap;\n          display: inline !important;\n      }\n     `,\n        1\n      );\n    }\n    function applyHighlighting(root) {\n      const containerSelector = root instanceof Document ? "body *" : "*";\n      root.querySelectorAll(containerSelector).forEach((element) => {\n        if (element.closest && element.closest(".stagehand-nav, .stagehand-marker")) {\n          return;\n        }\n        if (["SCRIPT", "STYLE", "IFRAME", "INPUT"].includes(element.tagName)) {\n          return;\n        }\n        const childNodes = Array.from(element.childNodes);\n        childNodes.forEach((node) => {\n          if (node.nodeType === 3 && node.textContent?.trim().length > 0) {\n            const textContent = node.textContent.replace(/\\u00A0/g, " ");\n            const tokens = textContent.split(/(\\s+)/g);\n            const fragment = document.createDocumentFragment();\n            const parentIsCode = element.tagName === "CODE";\n            tokens.forEach((token) => {\n              const span = document.createElement("span");\n              span.textContent = token;\n              if (parentIsCode) {\n                span.style.whiteSpace = "pre-wrap";\n                span.style.display = "inline";\n              }\n              span.className = token.trim().length === 0 ? "stagehand-space" : "stagehand-highlighted-word";\n              fragment.appendChild(span);\n            });\n            if (fragment.childNodes.length > 0 && node.parentNode) {\n              element.insertBefore(fragment, node);\n              node.remove();\n            }\n          }\n        });\n      });\n    }\n    if (!xpath) {\n      applyHighlighting(document);\n      document.querySelectorAll("iframe").forEach((iframe) => {\n        try {\n          iframe.contentWindow?.postMessage({ action: "highlight" }, "*");\n        } catch (error) {\n          console.error("Error accessing iframe content: ", error);\n        }\n      });\n    } else {\n      const node = getNodeFromXpath(xpath);\n      if (!node) {\n        console.warn(\n          `createTextBoundingBoxes: No element found for xpath "${xpath}".`\n        );\n        return;\n      }\n      applyHighlighting(node);\n    }\n  }\n  function getElementBoundingBoxes(xpath) {\n    const element = getNodeFromXpath(xpath);\n    if (!element) return [];\n    const isValidText = (text) => text && text.trim().length > 0;\n    let dropDownElem = element.querySelector("option[selected]");\n    if (!dropDownElem) {\n      dropDownElem = element.querySelector("option");\n    }\n    if (dropDownElem) {\n      const elemText = dropDownElem.textContent || "";\n      if (isValidText(elemText)) {\n        const parentRect = element.getBoundingClientRect();\n        return [\n          {\n            text: elemText.trim(),\n            top: parentRect.top + window.scrollY,\n            left: parentRect.left + window.scrollX,\n            width: parentRect.width,\n            height: parentRect.height\n          }\n        ];\n      } else {\n        return [];\n      }\n    }\n    let placeholderText = "";\n    if ((element.tagName.toLowerCase() === "input" || element.tagName.toLowerCase() === "textarea") && element.placeholder) {\n      placeholderText = element.placeholder;\n    } else if (element.tagName.toLowerCase() === "a") {\n      placeholderText = "";\n    } else if (element.tagName.toLowerCase() === "img") {\n      placeholderText = element.alt || "";\n    }\n    const words = element.querySelectorAll(\n      ".stagehand-highlighted-word"\n    );\n    const boundingBoxes = Array.from(words).map((word) => {\n      const rect = word.getBoundingClientRect();\n      return {\n        text: word.innerText || "",\n        top: rect.top + window.scrollY,\n        left: rect.left + window.scrollX,\n        width: rect.width,\n        height: rect.height * 0.75\n      };\n    }).filter(\n      (box) => box.width > 0 && box.height > 0 && box.top >= 0 && box.left >= 0 && isValidText(box.text)\n    );\n    if (boundingBoxes.length === 0) {\n      const elementRect = element.getBoundingClientRect();\n      return [\n        {\n          text: placeholderText,\n          top: elementRect.top + window.scrollY,\n          left: elementRect.left + window.scrollX,\n          width: elementRect.width,\n          height: elementRect.height * 0.75\n        }\n      ];\n    }\n    return boundingBoxes;\n  }\n  window.processDom = processDom;\n  window.processAllOfDom = processAllOfDom;\n  window.storeDOM = storeDOM;\n  window.restoreDOM = restoreDOM;\n  window.createTextBoundingBoxes = createTextBoundingBoxes;\n  window.getElementBoundingBoxes = getElementBoundingBoxes;\n  window.createStagehandContainer = createStagehandContainer;\n  window.getScrollableElementXpaths = getScrollableElementXpaths;\n  window.getNodeFromXpath = getNodeFromXpath;\n  async function pickChunk(chunksSeen) {\n    const viewportHeight = calculateViewportHeight();\n    const documentHeight = document.documentElement.scrollHeight;\n    const chunks = Math.ceil(documentHeight / viewportHeight);\n    const chunksArray = Array.from({ length: chunks }, (_, i) => i);\n    const chunksRemaining = chunksArray.filter((chunk2) => {\n      return !chunksSeen.includes(chunk2);\n    });\n    const currentScrollPosition = window.scrollY;\n    const closestChunk = chunksRemaining.reduce((closest, current) => {\n      const currentChunkTop = viewportHeight * current;\n      const closestChunkTop = viewportHeight * closest;\n      return Math.abs(currentScrollPosition - currentChunkTop) < Math.abs(currentScrollPosition - closestChunkTop) ? current : closest;\n    }, chunksRemaining[0]);\n    const chunk = closestChunk;\n    if (chunk === void 0) {\n      throw new Error(`No chunks remaining to check: ${chunksRemaining}`);\n    }\n    return {\n      chunk,\n      chunksArray\n    };\n  }\n\n  // lib/dom/debug.ts\n  async function debugDom() {\n    window.chunkNumber = 0;\n    const container = new GlobalPageContainer();\n    const chunkSize = container.getViewportHeight();\n    const startOffset = container.getScrollPosition();\n    const endOffset = startOffset;\n    const singleChunks = await container.collectDomChunks(\n      startOffset,\n      endOffset,\n      chunkSize,\n      false,\n      false,\n      // Don\'t scroll back to top\n      container.getRootElement()\n      // BFS entire doc\n    );\n    const [singleChunk] = singleChunks;\n    if (!singleChunk) {\n      console.warn("No chunk was returned. Possibly empty doc?");\n      return;\n    }\n    const multiSelectorMap = singleChunk.selectorMap;\n    const selectorMap = multiSelectorMapToSelectorMap(multiSelectorMap);\n    drawChunk(selectorMap);\n  }\n  function multiSelectorMapToSelectorMap(multiSelectorMap) {\n    return Object.fromEntries(\n      Object.entries(multiSelectorMap).map(([key, selectors]) => [\n        Number(key),\n        selectors[0]\n      ])\n    );\n  }\n  function drawChunk(selectorMap) {\n    if (!window.showChunks) return;\n    cleanupMarkers();\n    Object.values(selectorMap).forEach((selector) => {\n      const element = getNodeFromXpath(selector);\n      if (element) {\n        let rect;\n        if (element.nodeType === Node.ELEMENT_NODE) {\n          rect = element.getBoundingClientRect();\n        } else {\n          const range = document.createRange();\n          range.selectNodeContents(element);\n          rect = range.getBoundingClientRect();\n        }\n        const color = "grey";\n        const overlay = document.createElement("div");\n        overlay.style.position = "absolute";\n        overlay.style.left = `${rect.left + window.scrollX}px`;\n        overlay.style.top = `${rect.top + window.scrollY}px`;\n        overlay.style.padding = "2px";\n        overlay.style.width = `${rect.width}px`;\n        overlay.style.height = `${rect.height}px`;\n        overlay.style.backgroundColor = color;\n        overlay.className = "stagehand-marker";\n        overlay.style.opacity = "0.3";\n        overlay.style.zIndex = "1000000000";\n        overlay.style.border = "1px solid";\n        overlay.style.pointerEvents = "none";\n        document.body.appendChild(overlay);\n      }\n    });\n  }\n  async function cleanupDebug() {\n    cleanupMarkers();\n  }\n  function cleanupMarkers() {\n    const markers = document.querySelectorAll(".stagehand-marker");\n    markers.forEach((marker) => {\n      marker.remove();\n    });\n  }\n  window.debugDom = debugDom;\n  window.cleanupDebug = cleanupDebug;\n})();\n';
+var scriptContent = '(() => {\n  // lib/dom/elementCheckUtils.ts\n  function isElementNode(node) {\n    return node.nodeType === Node.ELEMENT_NODE;\n  }\n  function isTextNode(node) {\n    return node.nodeType === Node.TEXT_NODE && Boolean(node.textContent?.trim());\n  }\n  var leafElementDenyList = ["SVG", "IFRAME", "SCRIPT", "STYLE", "LINK"];\n  var interactiveElementTypes = [\n    "A",\n    "BUTTON",\n    "DETAILS",\n    "EMBED",\n    "INPUT",\n    "LABEL",\n    "MENU",\n    "MENUITEM",\n    "OBJECT",\n    "SELECT",\n    "TEXTAREA",\n    "SUMMARY"\n  ];\n  var interactiveRoles = [\n    "button",\n    "menu",\n    "menuitem",\n    "link",\n    "checkbox",\n    "radio",\n    "slider",\n    "tab",\n    "tabpanel",\n    "textbox",\n    "combobox",\n    "grid",\n    "listbox",\n    "option",\n    "progressbar",\n    "scrollbar",\n    "searchbox",\n    "switch",\n    "tree",\n    "treeitem",\n    "spinbutton",\n    "tooltip"\n  ];\n  var interactiveAriaRoles = ["menu", "menuitem", "button"];\n  var isVisible = (element) => {\n    const rect = element.getBoundingClientRect();\n    if (rect.width === 0 || rect.height === 0 || rect.top < 0 || rect.top > window.innerHeight) {\n      return false;\n    }\n    if (!isTopElement(element, rect)) {\n      return false;\n    }\n    const visible = element.checkVisibility({\n      checkOpacity: true,\n      checkVisibilityCSS: true\n    });\n    return visible;\n  };\n  var isTextVisible = (element) => {\n    const range = document.createRange();\n    range.selectNodeContents(element);\n    const rect = range.getBoundingClientRect();\n    if (rect.width === 0 || rect.height === 0 || rect.top < 0 || rect.top > window.innerHeight) {\n      return false;\n    }\n    const parent = element.parentElement;\n    if (!parent) {\n      return false;\n    }\n    const visible = parent.checkVisibility({\n      checkOpacity: true,\n      checkVisibilityCSS: true\n    });\n    return visible;\n  };\n  function isTopElement(elem, rect) {\n    const points = [\n      { x: rect.left + rect.width * 0.25, y: rect.top + rect.height * 0.25 },\n      { x: rect.left + rect.width * 0.75, y: rect.top + rect.height * 0.25 },\n      { x: rect.left + rect.width * 0.25, y: rect.top + rect.height * 0.75 },\n      { x: rect.left + rect.width * 0.75, y: rect.top + rect.height * 0.75 },\n      { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }\n    ];\n    return points.some((point) => {\n      const topEl = document.elementFromPoint(point.x, point.y);\n      let current = topEl;\n      while (current && current !== document.body) {\n        if (current.isSameNode(elem)) {\n          return true;\n        }\n        current = current.parentElement;\n      }\n      return false;\n    });\n  }\n  var isActive = (element) => {\n    if (element.hasAttribute("disabled") || element.hasAttribute("hidden") || element.getAttribute("aria-disabled") === "true") {\n      return false;\n    }\n    return true;\n  };\n  var isInteractiveElement = (element) => {\n    const elementType = element.tagName;\n    const elementRole = element.getAttribute("role");\n    const elementAriaRole = element.getAttribute("aria-role");\n    return elementType && interactiveElementTypes.includes(elementType) || elementRole && interactiveRoles.includes(elementRole) || elementAriaRole && interactiveAriaRoles.includes(elementAriaRole);\n  };\n  var isLeafElement = (element) => {\n    if (element.textContent === "") {\n      return false;\n    }\n    if (element.childNodes.length === 0) {\n      return !leafElementDenyList.includes(element.tagName);\n    }\n    if (element.childNodes.length === 1 && isTextNode(element.childNodes[0])) {\n      return true;\n    }\n    return false;\n  };\n\n  // lib/dom/xpathUtils.ts\n  function getParentElement(node) {\n    return isElementNode(node) ? node.parentElement : node.parentNode;\n  }\n  function getCombinations(attributes, size) {\n    const results = [];\n    function helper(start, combo) {\n      if (combo.length === size) {\n        results.push([...combo]);\n        return;\n      }\n      for (let i = start; i < attributes.length; i++) {\n        combo.push(attributes[i]);\n        helper(i + 1, combo);\n        combo.pop();\n      }\n    }\n    helper(0, []);\n    return results;\n  }\n  function isXPathFirstResultElement(xpath, target) {\n    try {\n      const result = document.evaluate(\n        xpath,\n        document.documentElement,\n        null,\n        XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,\n        null\n      );\n      return result.snapshotItem(0) === target;\n    } catch (error) {\n      console.warn(`Invalid XPath expression: ${xpath}`, error);\n      return false;\n    }\n  }\n  function escapeXPathString(value) {\n    if (value.includes("\'")) {\n      if (value.includes(\'"\')) {\n        return "concat(" + value.split(/(\'+)/).map((part) => {\n          if (part === "\'") {\n            return `"\'"`;\n          } else if (part.startsWith("\'") && part.endsWith("\'")) {\n            return `"${part}"`;\n          } else {\n            return `\'${part}\'`;\n          }\n        }).join(",") + ")";\n      } else {\n        return `"${value}"`;\n      }\n    } else {\n      return `\'${value}\'`;\n    }\n  }\n  async function generateXPathsForElement(element) {\n    if (!element) return [];\n    const [complexXPath, standardXPath, idBasedXPath] = await Promise.all([\n      generateComplexXPath(element),\n      generateStandardXPath(element),\n      generatedIdBasedXPath(element)\n    ]);\n    return [standardXPath, ...idBasedXPath ? [idBasedXPath] : [], complexXPath];\n  }\n  async function generateComplexXPath(element) {\n    const parts = [];\n    let currentElement = element;\n    while (currentElement && (isTextNode(currentElement) || isElementNode(currentElement))) {\n      if (isElementNode(currentElement)) {\n        const el = currentElement;\n        let selector = el.tagName.toLowerCase();\n        const attributePriority = [\n          "data-qa",\n          "data-component",\n          "data-role",\n          "role",\n          "aria-role",\n          "type",\n          "name",\n          "aria-label",\n          "placeholder",\n          "title",\n          "alt"\n        ];\n        const attributes = attributePriority.map((attr) => {\n          let value = el.getAttribute(attr);\n          if (attr === "href-full" && value) {\n            value = el.getAttribute("href");\n          }\n          return value ? { attr: attr === "href-full" ? "href" : attr, value } : null;\n        }).filter((attr) => attr !== null);\n        let uniqueSelector = "";\n        for (let i = 1; i <= attributes.length; i++) {\n          const combinations = getCombinations(attributes, i);\n          for (const combo of combinations) {\n            const conditions = combo.map((a) => `@${a.attr}=${escapeXPathString(a.value)}`).join(" and ");\n            const xpath2 = `//${selector}[${conditions}]`;\n            if (isXPathFirstResultElement(xpath2, el)) {\n              uniqueSelector = xpath2;\n              break;\n            }\n          }\n          if (uniqueSelector) break;\n        }\n        if (uniqueSelector) {\n          parts.unshift(uniqueSelector.replace("//", ""));\n          break;\n        } else {\n          const parent = getParentElement(el);\n          if (parent) {\n            const siblings = Array.from(parent.children).filter(\n              (sibling) => sibling.tagName === el.tagName\n            );\n            const index = siblings.indexOf(el) + 1;\n            selector += siblings.length > 1 ? `[${index}]` : "";\n          }\n          parts.unshift(selector);\n        }\n      }\n      currentElement = getParentElement(currentElement);\n    }\n    const xpath = "//" + parts.join("/");\n    return xpath;\n  }\n  async function generateStandardXPath(element) {\n    const parts = [];\n    while (element && (isTextNode(element) || isElementNode(element))) {\n      let index = 0;\n      let hasSameTypeSiblings = false;\n      const siblings = element.parentElement ? Array.from(element.parentElement.childNodes) : [];\n      for (let i = 0; i < siblings.length; i++) {\n        const sibling = siblings[i];\n        if (sibling.nodeType === element.nodeType && sibling.nodeName === element.nodeName) {\n          index = index + 1;\n          hasSameTypeSiblings = true;\n          if (sibling.isSameNode(element)) {\n            break;\n          }\n        }\n      }\n      if (element.nodeName !== "#text") {\n        const tagName = element.nodeName.toLowerCase();\n        const pathIndex = hasSameTypeSiblings ? `[${index}]` : "";\n        parts.unshift(`${tagName}${pathIndex}`);\n      }\n      element = element.parentElement;\n    }\n    return parts.length ? `/${parts.join("/")}` : "";\n  }\n  async function generatedIdBasedXPath(element) {\n    if (isElementNode(element) && element.id) {\n      return `//*[@id=\'${element.id}\']`;\n    }\n    return null;\n  }\n\n  // lib/dom/utils.ts\n  async function waitForDomSettle() {\n    return new Promise((resolve) => {\n      const createTimeout = () => {\n        return setTimeout(() => {\n          resolve();\n        }, 2e3);\n      };\n      let timeout = createTimeout();\n      const observer = new MutationObserver(() => {\n        clearTimeout(timeout);\n        timeout = createTimeout();\n      });\n      observer.observe(window.document.body, { childList: true, subtree: true });\n    });\n  }\n  function calculateViewportHeight() {\n    return Math.ceil(window.innerHeight * 0.75);\n  }\n  function canElementScroll(elem) {\n    if (typeof elem.scrollTo !== "function") {\n      console.warn("canElementScroll: .scrollTo is not a function.");\n      return false;\n    }\n    try {\n      const originalTop = elem.scrollTop;\n      elem.scrollTo({\n        top: originalTop + 100,\n        left: 0,\n        behavior: "instant"\n      });\n      if (elem.scrollTop === originalTop) {\n        throw new Error("scrollTop did not change");\n      }\n      elem.scrollTo({\n        top: originalTop,\n        left: 0,\n        behavior: "instant"\n      });\n      return true;\n    } catch (error) {\n      console.warn("canElementScroll error:", error.message || error);\n      return false;\n    }\n  }\n  function getNodeFromXpath(xpath) {\n    return document.evaluate(\n      xpath,\n      document.documentElement,\n      null,\n      XPathResult.FIRST_ORDERED_NODE_TYPE,\n      null\n    ).singleNodeValue;\n  }\n\n  // lib/dom/candidateCollector.ts\n  var xpathCache = /* @__PURE__ */ new Map();\n  async function collectCandidateElements(candidateContainerRoot, indexOffset = 0) {\n    const DOMQueue = [...candidateContainerRoot.childNodes];\n    const candidateElements = [];\n    while (DOMQueue.length > 0) {\n      const node = DOMQueue.pop();\n      let shouldAdd = false;\n      if (node && isElementNode(node)) {\n        for (let i = node.childNodes.length - 1; i >= 0; i--) {\n          DOMQueue.push(node.childNodes[i]);\n        }\n        if (isInteractiveElement(node)) {\n          if (isActive(node) && isVisible(node)) {\n            shouldAdd = true;\n          }\n        }\n        if (isLeafElement(node)) {\n          if (isActive(node) && isVisible(node)) {\n            shouldAdd = true;\n          }\n        }\n      }\n      if (node && isTextNode(node) && isTextVisible(node)) {\n        shouldAdd = true;\n      }\n      if (shouldAdd) {\n        candidateElements.push(node);\n      }\n    }\n    const selectorMap = {};\n    let outputString = "";\n    const xpathLists = await Promise.all(\n      candidateElements.map((elem) => {\n        if (xpathCache.has(elem)) {\n          return Promise.resolve(xpathCache.get(elem));\n        }\n        return generateXPathsForElement(elem).then((xpaths) => {\n          xpathCache.set(elem, xpaths);\n          return xpaths;\n        });\n      })\n    );\n    candidateElements.forEach((elem, idx) => {\n      const xpaths = xpathLists[idx];\n      let elemOutput = "";\n      if (isTextNode(elem)) {\n        const textContent = elem.textContent?.trim();\n        if (textContent) {\n          elemOutput += `${idx + indexOffset}:${textContent}\n`;\n        }\n      } else if (isElementNode(elem)) {\n        const tagName = elem.tagName.toLowerCase();\n        const attributes = collectEssentialAttributes(elem);\n        const opening = `<${tagName}${attributes ? " " + attributes : ""}>`;\n        const closing = `</${tagName}>`;\n        const textContent = elem.textContent?.trim() || "";\n        elemOutput += `${idx + indexOffset}:${opening}${textContent}${closing}\n`;\n      }\n      outputString += elemOutput;\n      selectorMap[idx + indexOffset] = xpaths;\n    });\n    return { outputString, selectorMap };\n  }\n  function collectEssentialAttributes(element) {\n    const essentialAttributes = [\n      "id",\n      "class",\n      "href",\n      "src",\n      "aria-label",\n      "aria-name",\n      "aria-role",\n      "aria-description",\n      "aria-expanded",\n      "aria-haspopup",\n      "type",\n      "value"\n    ];\n    const attrs = essentialAttributes.map((attr) => {\n      const value = element.getAttribute(attr);\n      return value ? `${attr}="${value}"` : "";\n    }).filter((attr) => attr !== "");\n    Array.from(element.attributes).forEach((attr) => {\n      if (attr.name.startsWith("data-")) {\n        attrs.push(`${attr.name}="${attr.value}"`);\n      }\n    });\n    return attrs.join(" ");\n  }\n\n  // lib/dom/StagehandContainer.ts\n  var StagehandContainer = class {\n    /**\n     * Collects multiple "DOM chunks" by scrolling through the container\n     * in increments from `startOffset` to `endOffset`. At each scroll\n     * position, the function extracts a snapshot of "candidate elements"\n     * using `collectCandidateElements`.\n     *\n     * Each chunk represents a subset of the DOM at a particular\n     * vertical scroll offset, including:\n     *\n     * - `startOffset` & `endOffset`: The vertical scroll bounds for this chunk.\n     * - `outputString`: A serialized representation of extracted DOM text.\n     * - `selectorMap`: A mapping of temporary indices to the actual element(s)\n     *   that were collected in this chunk, useful for further processing.\n     *\n     * @param startOffset - The initial scroll offset from which to begin collecting.\n     * @param endOffset - The maximum scroll offset to collect up to.\n     * @param chunkSize - The vertical increment to move between each chunk.\n     * @param scrollTo - Whether we should scroll to the chunk\n     * @param scrollBackToTop - Whether to scroll the container back to the top once finished.\n     * @param candidateContainer - Optionally, a specific container element within\n     * the root for which to collect data. If omitted, uses `this.getRootElement()`.\n     *\n     * @returns A promise that resolves with an array of `DomChunk` objects.\n     *\n     * ### How It Works\n     *\n     * 1. **Scroll Range Calculation**:\n     *    - Computes `maxOffset` as the maximum offset that can be scrolled\n     *      (`scrollHeight - viewportHeight`).\n     *    - Restricts `endOffset` to not exceed `maxOffset`.\n     *\n     * 2. **Chunk Iteration**:\n     *    - Loops from `startOffset` to `endOffset` in steps of `chunkSize`.\n     *    - For each offset `current`, we call `this.scrollTo(current)`\n     *      to position the container.\n     *\n     * 3. **Element Collection**:\n     *    - Invokes `collectCandidateElements` on either `candidateContainer`\n     *      (if provided) or the result of `this.getRootElement()`.\n     *    - This returns both an `outputString` (serialized text)\n     *      and a `selectorMap` of found elements for that section of the DOM.\n     *\n     * 4. **Chunk Assembly**:\n     *    - Creates a `DomChunk` object for the current offset range,\n     *      storing `outputString`, `selectorMap`, and scroll offsets.\n     *    - Pushes it onto the `chunks` array.\n     *\n     * 5. **Scroll Reset**:\n     *    - Once iteration completes, if `scrollBackToTop` is `true`,\n     *      we scroll back to offset `0`.\n     */\n    async collectDomChunks(startOffset, endOffset, chunkSize, scrollTo = true, scrollBackToTop = true, candidateContainer) {\n      const chunks = [];\n      let maxOffset = this.getScrollHeight();\n      let current = startOffset;\n      let finalEnd = endOffset;\n      let index = 0;\n      while (current <= finalEnd) {\n        if (scrollTo) {\n          await this.scrollTo(current);\n        }\n        const rootCandidate = candidateContainer || this.getRootElement();\n        const { outputString, selectorMap } = await collectCandidateElements(\n          rootCandidate,\n          index\n        );\n        chunks.push({\n          startOffset: current,\n          endOffset: current + chunkSize,\n          outputString,\n          selectorMap\n        });\n        index += Object.keys(selectorMap).length;\n        current += chunkSize;\n        if (!candidateContainer && current > endOffset) {\n          const newScrollHeight = this.getScrollHeight();\n          if (newScrollHeight > maxOffset) {\n            maxOffset = newScrollHeight;\n          }\n          if (newScrollHeight > finalEnd) {\n            finalEnd = newScrollHeight;\n          }\n        }\n      }\n      if (scrollBackToTop) {\n        await this.scrollTo(0);\n      }\n      return chunks;\n    }\n  };\n\n  // lib/dom/GlobalPageContainer.ts\n  var GlobalPageContainer = class extends StagehandContainer {\n    getRootElement() {\n      return document.body;\n    }\n    /**\n     * Calculates the viewport height for the entire page, using a helper.\n     * The helper returns 75% of the window height, to ensure that we don\'t\n     * miss any content that may be behind sticky elements like nav bars.\n     *\n     * @returns The current height of the global viewport, in pixels.\n     */\n    getViewportHeight() {\n      return calculateViewportHeight();\n    }\n    getScrollHeight() {\n      return document.documentElement.scrollHeight;\n    }\n    getScrollPosition() {\n      return window.scrollY;\n    }\n    /**\n     * Smoothly scrolls the page to the specified vertical offset, and then\n     * waits until scrolling has stopped. There is a delay built in to allow\n     * for lazy loading and other asynchronous content to load.\n     *\n     * @param offset - The desired scroll offset from the top of the page.\n     * @returns A promise that resolves once scrolling is complete.\n     */\n    async scrollTo(offset) {\n      await new Promise((resolve) => setTimeout(resolve, 1500));\n      window.scrollTo({ top: offset, behavior: "smooth" });\n      await this.waitForScrollEnd();\n    }\n    /**\n     * Scrolls the page so that a given element is visible, or scrolls to the top\n     * if no element is specified. Uses smooth scrolling and waits for it to complete.\n     *\n     * @param element - The DOM element to bring into view. If omitted, scrolls to top.\n     * @returns A promise that resolves once scrolling is complete.\n     */\n    async scrollIntoView(element) {\n      if (!element) {\n        window.scrollTo({ top: 0, behavior: "smooth" });\n      } else {\n        const rect = element.getBoundingClientRect();\n        const currentY = window.scrollY || document.documentElement.scrollTop;\n        const elementY = currentY + rect.top - window.innerHeight * 0.25;\n        window.scrollTo({ top: elementY, behavior: "smooth" });\n      }\n      await this.waitForScrollEnd();\n    }\n    /**\n     * Internal helper that waits until the global scroll activity has stopped.\n     * It listens for scroll events, resetting a short timer every time a scroll\n     * occurs, and resolves once there\'s no scroll for ~100ms.\n     *\n     * @returns A promise that resolves when scrolling has finished.\n     */\n    async waitForScrollEnd() {\n      return new Promise((resolve) => {\n        let scrollEndTimer;\n        const handleScroll = () => {\n          clearTimeout(scrollEndTimer);\n          scrollEndTimer = window.setTimeout(() => {\n            window.removeEventListener("scroll", handleScroll);\n            resolve();\n          }, 100);\n        };\n        window.addEventListener("scroll", handleScroll, { passive: true });\n        handleScroll();\n      });\n    }\n  };\n\n  // lib/dom/ElementContainer.ts\n  var ElementContainer = class extends StagehandContainer {\n    /**\n     * Creates an instance of `ElementContainer` tied to a specific element.\n     * @param el - The scrollable `HTMLElement` that this container controls.\n     */\n    constructor(el) {\n      super();\n      this.el = el;\n    }\n    getRootElement() {\n      return this.el;\n    }\n    /**\n     * Retrieves the height of the visible viewport within this element\n     * (`el.clientHeight`).\n     *\n     * @returns The visible (client) height of the element, in pixels.\n     */\n    getViewportHeight() {\n      return this.el.clientHeight;\n    }\n    getScrollHeight() {\n      return this.el.scrollHeight;\n    }\n    /**\n     * Returns the element\'s current vertical scroll offset.\n     */\n    getScrollPosition() {\n      return this.el.scrollTop;\n    }\n    /**\n     * Smoothly scrolls this element to the specified vertical offset, and\n     * waits for the scrolling to complete.\n     *\n     * @param offset - The scroll offset (in pixels) from the top of the element.\n     * @returns A promise that resolves once scrolling is finished.\n     */\n    async scrollTo(offset) {\n      await new Promise((resolve) => setTimeout(resolve, 1500));\n      this.el.scrollTo({ top: offset, behavior: "smooth" });\n      await this.waitForScrollEnd();\n    }\n    /**\n     * Scrolls this element so that the given `element` is visible, or\n     * scrolls to the top if none is provided. Smoothly animates the scroll\n     * and waits until it finishes.\n     *\n     * @param element - The child element to bring into view. If omitted, scrolls to top.\n     * @returns A promise that resolves once scrolling completes.\n     */\n    async scrollIntoView(element) {\n      if (!element) {\n        this.el.scrollTo({ top: 0, behavior: "smooth" });\n      } else {\n        element.scrollIntoView();\n      }\n      await this.waitForScrollEnd();\n    }\n    /**\n     * Internal helper that waits until scrolling in this element has\n     * fully stopped. It listens for scroll events on the element,\n     * resetting a short timer every time a scroll occurs, and resolves\n     * once there\'s no scroll for ~100ms.\n     *\n     * @returns A promise that resolves when scrolling has finished.\n     */\n    async waitForScrollEnd() {\n      return new Promise((resolve) => {\n        let scrollEndTimer;\n        const handleScroll = () => {\n          clearTimeout(scrollEndTimer);\n          scrollEndTimer = window.setTimeout(() => {\n            this.el.removeEventListener("scroll", handleScroll);\n            resolve();\n          }, 100);\n        };\n        this.el.addEventListener("scroll", handleScroll, { passive: true });\n        handleScroll();\n      });\n    }\n  };\n\n  // lib/dom/containerFactory.ts\n  function createStagehandContainer(obj) {\n    if (obj instanceof Window) {\n      return new GlobalPageContainer();\n    } else {\n      return new ElementContainer(obj);\n    }\n  }\n\n  // lib/dom/process.ts\n  function getScrollableElements(topN) {\n    const docEl = document.documentElement;\n    const scrollableElements = [docEl];\n    const allElements = document.querySelectorAll("*");\n    for (const elem of allElements) {\n      const style = window.getComputedStyle(elem);\n      const overflowY = style.overflowY;\n      const isPotentiallyScrollable = overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay";\n      if (isPotentiallyScrollable) {\n        const candidateScrollDiff = elem.scrollHeight - elem.clientHeight;\n        if (candidateScrollDiff > 0 && canElementScroll(elem)) {\n          scrollableElements.push(elem);\n        }\n      }\n    }\n    scrollableElements.sort((a, b) => b.scrollHeight - a.scrollHeight);\n    if (topN !== void 0) {\n      return scrollableElements.slice(0, topN);\n    }\n    return scrollableElements;\n  }\n  async function getScrollableElementXpaths(topN) {\n    const scrollableElems = getScrollableElements(topN);\n    const xpaths = [];\n    for (const elem of scrollableElems) {\n      const allXPaths = await generateXPathsForElement(elem);\n      const firstXPath = allXPaths?.[0] || "";\n      xpaths.push(firstXPath);\n    }\n    return xpaths;\n  }\n  function getNearestScrollableParent(el) {\n    const allScrollables = getScrollableElements();\n    let current = el;\n    while (current) {\n      if (allScrollables.includes(current)) {\n        return current;\n      }\n      current = current.parentElement;\n    }\n    return document.documentElement;\n  }\n  async function processDom(chunksSeen) {\n    const { chunk, chunksArray } = await pickChunk(chunksSeen);\n    const container = new GlobalPageContainer();\n    const chunkSize = container.getViewportHeight();\n    const startOffset = chunk * chunkSize;\n    const endOffset = startOffset;\n    const domChunks = await container.collectDomChunks(\n      startOffset,\n      endOffset,\n      chunkSize,\n      true,\n      false,\n      // scrollBackToTop\n      container.getRootElement()\n      // BFS entire doc\n    );\n    const [domChunk] = domChunks;\n    if (!domChunk) {\n      return {\n        outputString: "",\n        selectorMap: {},\n        chunk,\n        chunks: chunksArray\n      };\n    }\n    console.log("Extracted DOM chunk:\\n", domChunk.outputString);\n    return {\n      outputString: domChunk.outputString,\n      selectorMap: domChunk.selectorMap,\n      chunk,\n      chunks: chunksArray\n    };\n  }\n  async function processAllOfDom(xpath) {\n    let candidateElementContainer = null;\n    let scrollTarget;\n    if (xpath) {\n      const node = getNodeFromXpath(xpath);\n      if (node) {\n        candidateElementContainer = node;\n        console.log(`Found element via XPath: ${xpath}`);\n        const scrollableElem = getNearestScrollableParent(\n          candidateElementContainer\n        );\n        if (scrollableElem === document.documentElement) {\n          scrollTarget = new GlobalPageContainer();\n        } else {\n          scrollTarget = new ElementContainer(scrollableElem);\n        }\n        await scrollTarget.scrollIntoView(candidateElementContainer);\n        const startOffset2 = scrollTarget.getScrollPosition();\n        const scrollTargetHeight = scrollTarget.getViewportHeight();\n        const candidateElementContainerHeight = candidateElementContainer.scrollHeight;\n        if (candidateElementContainerHeight <= scrollTargetHeight) {\n          console.log(\n            "Element is smaller/equal to container\\u2019s viewport. Doing single chunk."\n          );\n          const domChunks2 = await scrollTarget.collectDomChunks(\n            startOffset2,\n            // startOffset\n            startOffset2,\n            // endOffset => same as start => 1 chunk\n            1,\n            // chunkSize=1 => doesn\'t matter, because start==end means exactly 1 iteration\n            true,\n            true,\n            candidateElementContainer\n          );\n          const singleChunkOutput = combineChunks(domChunks2);\n          console.log(\n            "Final output (single-chunk):",\n            singleChunkOutput.outputString\n          );\n          return singleChunkOutput;\n        }\n        console.log("Element is bigger. Doing multi-chunk approach.");\n      } else {\n        console.warn(`XPath not found: ${xpath}. Using entire doc.`);\n      }\n    } else {\n      const scrollableElems = getScrollableElements(1);\n      const mainScrollable = scrollableElems[0];\n      scrollTarget = mainScrollable === document.documentElement ? createStagehandContainer(window) : createStagehandContainer(mainScrollable);\n    }\n    const startOffset = scrollTarget.getScrollPosition();\n    const viewportHeight = scrollTarget.getViewportHeight();\n    const maxScroll = candidateElementContainer ? startOffset + candidateElementContainer.scrollHeight : scrollTarget.getScrollHeight();\n    const chunkSize = viewportHeight;\n    console.log("processAllOfDom chunk-based from", startOffset, "to", maxScroll);\n    const domChunks = await scrollTarget.collectDomChunks(\n      startOffset,\n      maxScroll,\n      chunkSize,\n      true,\n      true,\n      candidateElementContainer ?? void 0\n    );\n    const finalOutput = combineChunks(domChunks);\n    console.log(\n      "All DOM elements combined (chunk-based):",\n      finalOutput.outputString\n    );\n    return finalOutput;\n  }\n  function combineChunks(domChunks) {\n    const outputString = domChunks.map((c) => c.outputString).join("");\n    let finalSelectorMap = {};\n    domChunks.forEach((c) => {\n      finalSelectorMap = { ...finalSelectorMap, ...c.selectorMap };\n    });\n    return { outputString, selectorMap: finalSelectorMap };\n  }\n  function storeDOM(xpath) {\n    if (!xpath) {\n      const originalDOM = document.body.cloneNode(true);\n      console.log("DOM state stored (root).");\n      return originalDOM.outerHTML;\n    } else {\n      const node = getNodeFromXpath(xpath);\n      if (!node) {\n        console.error(\n          `storeDOM: No element found for xpath: ${xpath}. Returning empty string.`\n        );\n        return "";\n      }\n      console.log(`DOM state stored (element at xpath: ${xpath}).`);\n      return node.outerHTML;\n    }\n  }\n  function restoreDOM(storedDOM, xpath) {\n    console.log("Restoring DOM...");\n    if (!storedDOM) {\n      console.error("No DOM state was provided.");\n      return;\n    }\n    if (!xpath) {\n      document.body.innerHTML = storedDOM;\n      console.log("DOM restored (root).");\n    } else {\n      const node = getNodeFromXpath(xpath);\n      if (!node) {\n        console.error(\n          `restoreDOM: No element found for xpath: ${xpath}. Cannot restore.`\n        );\n        return;\n      }\n      node.outerHTML = storedDOM;\n      console.log(`DOM restored (element at xpath: ${xpath}).`);\n    }\n  }\n  function createTextBoundingBoxes(xpath) {\n    const style = document.createElement("style");\n    document.head.appendChild(style);\n    if (style.sheet) {\n      style.sheet.insertRule(\n        `\n      .stagehand-highlighted-word, .stagehand-space {\n        border: 0px solid orange;\n        display: inline-block !important;\n        visibility: visible;\n      }\n    `,\n        0\n      );\n      style.sheet.insertRule(\n        `\n        code .stagehand-highlighted-word, code .stagehand-space,\n        pre .stagehand-highlighted-word, pre .stagehand-space {\n          white-space: pre-wrap;\n          display: inline !important;\n      }\n     `,\n        1\n      );\n    }\n    function applyHighlighting(root) {\n      const containerSelector = root instanceof Document ? "body *" : "*";\n      root.querySelectorAll(containerSelector).forEach((element) => {\n        if (element.closest && element.closest(".stagehand-nav, .stagehand-marker")) {\n          return;\n        }\n        if (["SCRIPT", "STYLE", "IFRAME", "INPUT"].includes(element.tagName)) {\n          return;\n        }\n        const childNodes = Array.from(element.childNodes);\n        childNodes.forEach((node) => {\n          if (node.nodeType === 3 && node.textContent?.trim().length > 0) {\n            const textContent = node.textContent.replace(/\\u00A0/g, " ");\n            const tokens = textContent.split(/(\\s+)/g);\n            const fragment = document.createDocumentFragment();\n            const parentIsCode = element.tagName === "CODE";\n            tokens.forEach((token) => {\n              const span = document.createElement("span");\n              span.textContent = token;\n              if (parentIsCode) {\n                span.style.whiteSpace = "pre-wrap";\n                span.style.display = "inline";\n              }\n              span.className = token.trim().length === 0 ? "stagehand-space" : "stagehand-highlighted-word";\n              fragment.appendChild(span);\n            });\n            if (fragment.childNodes.length > 0 && node.parentNode) {\n              element.insertBefore(fragment, node);\n              node.remove();\n            }\n          }\n        });\n      });\n    }\n    if (!xpath) {\n      applyHighlighting(document);\n      document.querySelectorAll("iframe").forEach((iframe) => {\n        try {\n          iframe.contentWindow?.postMessage({ action: "highlight" }, "*");\n        } catch (error) {\n          console.error("Error accessing iframe content: ", error);\n        }\n      });\n    } else {\n      const node = getNodeFromXpath(xpath);\n      if (!node) {\n        console.warn(\n          `createTextBoundingBoxes: No element found for xpath "${xpath}".`\n        );\n        return;\n      }\n      applyHighlighting(node);\n    }\n  }\n  function getElementBoundingBoxes(xpath) {\n    const element = getNodeFromXpath(xpath);\n    if (!element) return [];\n    const isValidText = (text) => text && text.trim().length > 0;\n    let dropDownElem = element.querySelector("option[selected]");\n    if (!dropDownElem) {\n      dropDownElem = element.querySelector("option");\n    }\n    if (dropDownElem) {\n      const elemText = dropDownElem.textContent || "";\n      if (isValidText(elemText)) {\n        const parentRect = element.getBoundingClientRect();\n        return [\n          {\n            text: elemText.trim(),\n            top: parentRect.top + window.scrollY,\n            left: parentRect.left + window.scrollX,\n            width: parentRect.width,\n            height: parentRect.height\n          }\n        ];\n      } else {\n        return [];\n      }\n    }\n    let placeholderText = "";\n    if ((element.tagName.toLowerCase() === "input" || element.tagName.toLowerCase() === "textarea") && element.placeholder) {\n      placeholderText = element.placeholder;\n    } else if (element.tagName.toLowerCase() === "a") {\n      placeholderText = "";\n    } else if (element.tagName.toLowerCase() === "img") {\n      placeholderText = element.alt || "";\n    }\n    const words = element.querySelectorAll(\n      ".stagehand-highlighted-word"\n    );\n    const boundingBoxes = Array.from(words).map((word) => {\n      const rect = word.getBoundingClientRect();\n      return {\n        text: word.innerText || "",\n        top: rect.top + window.scrollY,\n        left: rect.left + window.scrollX,\n        width: rect.width,\n        height: rect.height * 0.75\n      };\n    }).filter(\n      (box) => box.width > 0 && box.height > 0 && box.top >= 0 && box.left >= 0 && isValidText(box.text)\n    );\n    if (boundingBoxes.length === 0) {\n      const elementRect = element.getBoundingClientRect();\n      return [\n        {\n          text: placeholderText,\n          top: elementRect.top + window.scrollY,\n          left: elementRect.left + window.scrollX,\n          width: elementRect.width,\n          height: elementRect.height * 0.75\n        }\n      ];\n    }\n    return boundingBoxes;\n  }\n  window.waitForDomSettle = waitForDomSettle;\n  window.processDom = processDom;\n  window.processAllOfDom = processAllOfDom;\n  window.storeDOM = storeDOM;\n  window.restoreDOM = restoreDOM;\n  window.createTextBoundingBoxes = createTextBoundingBoxes;\n  window.getElementBoundingBoxes = getElementBoundingBoxes;\n  window.createStagehandContainer = createStagehandContainer;\n  window.getScrollableElementXpaths = getScrollableElementXpaths;\n  window.getNodeFromXpath = getNodeFromXpath;\n  async function pickChunk(chunksSeen) {\n    const viewportHeight = calculateViewportHeight();\n    const documentHeight = document.documentElement.scrollHeight;\n    const chunks = Math.ceil(documentHeight / viewportHeight);\n    const chunksArray = Array.from({ length: chunks }, (_, i) => i);\n    const chunksRemaining = chunksArray.filter((chunk2) => {\n      return !chunksSeen.includes(chunk2);\n    });\n    const currentScrollPosition = window.scrollY;\n    const closestChunk = chunksRemaining.reduce((closest, current) => {\n      const currentChunkTop = viewportHeight * current;\n      const closestChunkTop = viewportHeight * closest;\n      return Math.abs(currentScrollPosition - currentChunkTop) < Math.abs(currentScrollPosition - closestChunkTop) ? current : closest;\n    }, chunksRemaining[0]);\n    const chunk = closestChunk;\n    if (chunk === void 0) {\n      throw new Error(`No chunks remaining to check: ${chunksRemaining}`);\n    }\n    return {\n      chunk,\n      chunksArray\n    };\n  }\n})();\n';
 
 // lib/cache/LLMCache.ts
 var LLMCache = class _LLMCache extends BaseCache {
@@ -4534,11 +5122,12 @@ var AnthropicClient = class extends LLMClient {
     cache,
     modelName,
     clientOptions,
-    userProvidedInstructions
+    userProvidedInstructions,
+    remoteClientHandler
   }) {
     super(modelName);
     this.type = "anthropic";
-    this.client = new import_sdk2.default(clientOptions);
+    this.client = !remoteClientHandler ? new import_sdk2.default(clientOptions) : null;
     this.cache = cache;
     this.enableCaching = enableCaching;
     this.modelName = modelName;
@@ -4710,14 +5299,23 @@ var AnthropicClient = class extends LLMClient {
         anthropicTools = anthropicTools != null ? anthropicTools : [];
         anthropicTools.push(toolDefinition);
       }
-      const response = yield this.client.messages.create({
+      const body = {
         model: this.modelName,
         max_tokens: options.maxTokens || 8192,
         messages: formattedMessages,
         tools: anthropicTools,
         system: systemMessage ? systemMessage.content : void 0,
         temperature: options.temperature
-      });
+      };
+      let response;
+      if (this.remoteClientHandler) {
+        response = yield this.remoteClientHandler("anthropic", {
+          clientOptions: this.clientOptions,
+          body
+        });
+      } else {
+        response = yield this.client.messages.create(body);
+      }
       logger({
         category: "anthropic",
         message: "response",
@@ -4733,6 +5331,11 @@ var AnthropicClient = class extends LLMClient {
           }
         }
       });
+      const usageData = {
+        prompt_tokens: response.usage.input_tokens,
+        completion_tokens: response.usage.output_tokens,
+        total_tokens: response.usage.input_tokens + response.usage.output_tokens
+      };
       const transformedResponse = {
         id: response.id,
         object: "chat.completion",
@@ -4756,11 +5359,7 @@ var AnthropicClient = class extends LLMClient {
             finish_reason: response.stop_reason
           }
         ],
-        usage: {
-          prompt_tokens: response.usage.input_tokens,
-          completion_tokens: response.usage.output_tokens,
-          total_tokens: response.usage.input_tokens + response.usage.output_tokens
-        }
+        usage: usageData
       };
       logger({
         category: "anthropic",
@@ -4781,10 +5380,14 @@ var AnthropicClient = class extends LLMClient {
         const toolUse = response.content.find((c) => c.type === "tool_use");
         if (toolUse && "input" in toolUse) {
           const result = toolUse.input;
+          const finalParsedResponse = {
+            data: result,
+            usage: usageData
+          };
           if (this.enableCaching) {
-            this.cache.set(cacheOptions, result, options.requestId);
+            this.cache.set(cacheOptions, finalParsedResponse, options.requestId);
           }
-          return result;
+          return finalParsedResponse;
         } else {
           if (!retries || retries < 5) {
             return this.createChatCompletion({
@@ -4853,15 +5456,17 @@ var CerebrasClient = class extends LLMClient {
     cache,
     modelName,
     clientOptions,
-    userProvidedInstructions
+    userProvidedInstructions,
+    remoteClientHandler
   }) {
     super(modelName, userProvidedInstructions);
     this.type = "cerebras";
     this.hasVision = false;
-    this.client = new import_openai.default(__spreadValues({
+    this.remoteClientHandler = remoteClientHandler;
+    this.client = !remoteClientHandler ? new import_openai.default(__spreadValues({
       baseURL: "https://api.cerebras.ai/v1",
       apiKey: (clientOptions == null ? void 0 : clientOptions.apiKey) || process.env.CEREBRAS_API_KEY
-    }, clientOptions));
+    }, clientOptions)) : null;
     this.cache = cache;
     this.enableCaching = enableCaching;
     this.modelName = modelName;
@@ -4873,7 +5478,7 @@ var CerebrasClient = class extends LLMClient {
       retries,
       logger
     }) {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
       const optionsWithoutImage = __spreadValues({}, options);
       delete optionsWithoutImage.image;
       logger({
@@ -4966,7 +5571,7 @@ var CerebrasClient = class extends LLMClient {
         tools = tools ? [...tools, responseTool] : [responseTool];
       }
       try {
-        const apiResponse = yield this.client.chat.completions.create({
+        const body = {
           model: this.modelName.split("cerebras-")[1],
           messages: [
             ...formattedMessages,
@@ -4982,7 +5587,19 @@ var CerebrasClient = class extends LLMClient {
           max_tokens: options.maxTokens,
           tools,
           tool_choice: options.tool_choice || "auto"
-        });
+        };
+        let apiResponse;
+        if (this.remoteClientHandler) {
+          apiResponse = yield this.remoteClientHandler("openai", {
+            clientOptions: __spreadValues({
+              baseURL: "https://api.cerebras.ai/v1",
+              apiKey: ((_b = this.clientOptions) == null ? void 0 : _b.apiKey) || process.env.CEREBRAS_API_KEY
+            }, this.clientOptions),
+            body
+          });
+        } else {
+          apiResponse = yield this.client.chat.completions.create(body);
+        }
         const response = {
           id: apiResponse.id,
           object: "chat.completion",
@@ -4993,16 +5610,16 @@ var CerebrasClient = class extends LLMClient {
               index: 0,
               message: {
                 role: "assistant",
-                content: ((_c = (_b = apiResponse.choices[0]) == null ? void 0 : _b.message) == null ? void 0 : _c.content) || null,
-                tool_calls: ((_e = (_d = apiResponse.choices[0]) == null ? void 0 : _d.message) == null ? void 0 : _e.tool_calls) || []
+                content: ((_d = (_c = apiResponse.choices[0]) == null ? void 0 : _c.message) == null ? void 0 : _d.content) || null,
+                tool_calls: ((_f = (_e = apiResponse.choices[0]) == null ? void 0 : _e.message) == null ? void 0 : _f.tool_calls) || []
               },
-              finish_reason: ((_f = apiResponse.choices[0]) == null ? void 0 : _f.finish_reason) || "stop"
+              finish_reason: ((_g = apiResponse.choices[0]) == null ? void 0 : _g.finish_reason) || "stop"
             }
           ],
           usage: {
-            prompt_tokens: ((_g = apiResponse.usage) == null ? void 0 : _g.prompt_tokens) || 0,
-            completion_tokens: ((_h = apiResponse.usage) == null ? void 0 : _h.completion_tokens) || 0,
-            total_tokens: ((_i = apiResponse.usage) == null ? void 0 : _i.total_tokens) || 0
+            prompt_tokens: ((_h = apiResponse.usage) == null ? void 0 : _h.prompt_tokens) || 0,
+            completion_tokens: ((_i = apiResponse.usage) == null ? void 0 : _i.completion_tokens) || 0,
+            total_tokens: ((_j = apiResponse.usage) == null ? void 0 : _j.total_tokens) || 0
           }
         };
         logger({
@@ -5021,8 +5638,8 @@ var CerebrasClient = class extends LLMClient {
           }
         });
         if (options.response_model) {
-          const toolCall = (_l = (_k = (_j = response.choices[0]) == null ? void 0 : _j.message) == null ? void 0 : _k.tool_calls) == null ? void 0 : _l[0];
-          if ((_m = toolCall == null ? void 0 : toolCall.function) == null ? void 0 : _m.arguments) {
+          const toolCall = (_m = (_l = (_k = response.choices[0]) == null ? void 0 : _k.message) == null ? void 0 : _l.tool_calls) == null ? void 0 : _m[0];
+          if ((_n = toolCall == null ? void 0 : toolCall.function) == null ? void 0 : _n.arguments) {
             try {
               const result = JSON.parse(toolCall.function.arguments);
               if (this.enableCaching) {
@@ -5043,7 +5660,7 @@ var CerebrasClient = class extends LLMClient {
               });
             }
           }
-          const content = (_o = (_n = response.choices[0]) == null ? void 0 : _n.message) == null ? void 0 : _o.content;
+          const content = (_p = (_o = response.choices[0]) == null ? void 0 : _o.message) == null ? void 0 : _p.content;
           if (content) {
             try {
               const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -5114,15 +5731,17 @@ var GroqClient = class extends LLMClient {
     cache,
     modelName,
     clientOptions,
-    userProvidedInstructions
+    userProvidedInstructions,
+    remoteClientHandler
   }) {
     super(modelName, userProvidedInstructions);
     this.type = "groq";
     this.hasVision = false;
-    this.client = new import_openai2.default(__spreadValues({
+    this.remoteClientHandler = remoteClientHandler;
+    this.client = !remoteClientHandler ? new import_openai2.default(__spreadValues({
       baseURL: "https://api.groq.com/openai/v1",
       apiKey: (clientOptions == null ? void 0 : clientOptions.apiKey) || process.env.GROQ_API_KEY
-    }, clientOptions));
+    }, clientOptions)) : null;
     this.cache = cache;
     this.enableCaching = enableCaching;
     this.modelName = modelName;
@@ -5134,7 +5753,7 @@ var GroqClient = class extends LLMClient {
       retries,
       logger
     }) {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
       const optionsWithoutImage = __spreadValues({}, options);
       delete optionsWithoutImage.image;
       logger({
@@ -5227,7 +5846,7 @@ var GroqClient = class extends LLMClient {
         tools = tools ? [...tools, responseTool] : [responseTool];
       }
       try {
-        const apiResponse = yield this.client.chat.completions.create({
+        const body = {
           model: this.modelName.split("groq-")[1],
           messages: [
             ...formattedMessages,
@@ -5243,7 +5862,19 @@ var GroqClient = class extends LLMClient {
           max_tokens: options.maxTokens,
           tools,
           tool_choice: options.tool_choice || "auto"
-        });
+        };
+        let apiResponse;
+        if (this.remoteClientHandler) {
+          apiResponse = yield this.remoteClientHandler("openai", {
+            clientOptions: __spreadValues({
+              baseURL: "https://api.groq.com/openai/v1",
+              apiKey: ((_b = this.clientOptions) == null ? void 0 : _b.apiKey) || process.env.GROQ_API_KEY
+            }, this.clientOptions),
+            body
+          });
+        } else {
+          apiResponse = yield this.client.chat.completions.create(body);
+        }
         const response = {
           id: apiResponse.id,
           object: "chat.completion",
@@ -5254,16 +5885,16 @@ var GroqClient = class extends LLMClient {
               index: 0,
               message: {
                 role: "assistant",
-                content: ((_c = (_b = apiResponse.choices[0]) == null ? void 0 : _b.message) == null ? void 0 : _c.content) || null,
-                tool_calls: ((_e = (_d = apiResponse.choices[0]) == null ? void 0 : _d.message) == null ? void 0 : _e.tool_calls) || []
+                content: ((_d = (_c = apiResponse.choices[0]) == null ? void 0 : _c.message) == null ? void 0 : _d.content) || null,
+                tool_calls: ((_f = (_e = apiResponse.choices[0]) == null ? void 0 : _e.message) == null ? void 0 : _f.tool_calls) || []
               },
-              finish_reason: ((_f = apiResponse.choices[0]) == null ? void 0 : _f.finish_reason) || "stop"
+              finish_reason: ((_g = apiResponse.choices[0]) == null ? void 0 : _g.finish_reason) || "stop"
             }
           ],
           usage: {
-            prompt_tokens: ((_g = apiResponse.usage) == null ? void 0 : _g.prompt_tokens) || 0,
-            completion_tokens: ((_h = apiResponse.usage) == null ? void 0 : _h.completion_tokens) || 0,
-            total_tokens: ((_i = apiResponse.usage) == null ? void 0 : _i.total_tokens) || 0
+            prompt_tokens: ((_h = apiResponse.usage) == null ? void 0 : _h.prompt_tokens) || 0,
+            completion_tokens: ((_i = apiResponse.usage) == null ? void 0 : _i.completion_tokens) || 0,
+            total_tokens: ((_j = apiResponse.usage) == null ? void 0 : _j.total_tokens) || 0
           }
         };
         logger({
@@ -5282,8 +5913,8 @@ var GroqClient = class extends LLMClient {
           }
         });
         if (options.response_model) {
-          const toolCall = (_l = (_k = (_j = response.choices[0]) == null ? void 0 : _j.message) == null ? void 0 : _k.tool_calls) == null ? void 0 : _l[0];
-          if ((_m = toolCall == null ? void 0 : toolCall.function) == null ? void 0 : _m.arguments) {
+          const toolCall = (_m = (_l = (_k = response.choices[0]) == null ? void 0 : _k.message) == null ? void 0 : _l.tool_calls) == null ? void 0 : _m[0];
+          if ((_n = toolCall == null ? void 0 : toolCall.function) == null ? void 0 : _n.arguments) {
             try {
               const result = JSON.parse(toolCall.function.arguments);
               if (this.enableCaching) {
@@ -5304,7 +5935,7 @@ var GroqClient = class extends LLMClient {
               });
             }
           }
-          const content = (_o = (_n = response.choices[0]) == null ? void 0 : _n.message) == null ? void 0 : _o.content;
+          const content = (_p = (_o = response.choices[0]) == null ? void 0 : _o.message) == null ? void 0 : _p.content;
           if (content) {
             try {
               const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -5643,7 +6274,10 @@ ${parsedSchema}
       });
       let response;
       if (this.remoteClientHandler) {
-        response = yield this.remoteClientHandler(this.clientOptions, body);
+        response = yield this.remoteClientHandler("openai", {
+          clientOptions: this.clientOptions,
+          body
+        });
       } else {
         response = yield this.client.chat.completions.create(body);
       }
@@ -5722,7 +6356,10 @@ ${parsedSchema}
             options.requestId
           );
         }
-        return parsedData;
+        return {
+          data: parsedData,
+          usage: response.usage
+        };
       }
       if (this.enableCaching) {
         logger({
@@ -5814,7 +6451,8 @@ var LLMProvider = class {
           enableCaching: this.enableCaching,
           cache: this.cache,
           modelName,
-          clientOptions
+          clientOptions,
+          remoteClientHandler
         });
       case "cerebras":
         return new CerebrasClient({
@@ -5822,7 +6460,8 @@ var LLMProvider = class {
           enableCaching: this.enableCaching,
           cache: this.cache,
           modelName,
-          clientOptions
+          clientOptions,
+          remoteClientHandler
         });
       case "groq":
         return new GroqClient({
@@ -5830,7 +6469,8 @@ var LLMProvider = class {
           enableCaching: this.enableCaching,
           cache: this.cache,
           modelName,
-          clientOptions
+          clientOptions,
+          remoteClientHandler
         });
       default:
         throw new Error(`Unsupported provider: ${provider}`);
@@ -5842,9 +6482,1793 @@ var LLMProvider = class {
   }
 };
 
-// types/model.ts
+// lib/agent/OpenAICUAClient.ts
+var import_openai4 = __toESM(require("openai"));
+
+// lib/agent/AgentClient.ts
+var AgentClient = class {
+  constructor(type, modelName, userProvidedInstructions) {
+    this.type = type;
+    this.modelName = modelName;
+    this.userProvidedInstructions = userProvidedInstructions;
+    this.clientOptions = {};
+  }
+};
+
+// lib/agent/OpenAICUAClient.ts
+var OpenAICUAClient = class extends AgentClient {
+  constructor(type, modelName, userProvidedInstructions, clientOptions, remoteAgentClientHandler) {
+    super(type, modelName, userProvidedInstructions);
+    this.currentViewport = { width: 1024, height: 768 };
+    this.reasoningItems = /* @__PURE__ */ new Map();
+    this.environment = "browser";
+    this.apiKey = (clientOptions == null ? void 0 : clientOptions.apiKey) || process.env.OPENAI_API_KEY || "";
+    this.organization = (clientOptions == null ? void 0 : clientOptions.organization) || process.env.OPENAI_ORG;
+    if ((clientOptions == null ? void 0 : clientOptions.environment) && typeof clientOptions.environment === "string") {
+      this.environment = clientOptions.environment;
+    }
+    this.clientOptions = {
+      apiKey: this.apiKey
+    };
+    this.remoteAgentClientHandler = remoteAgentClientHandler;
+    this.client = !remoteAgentClientHandler ? new import_openai4.default(this.clientOptions) : null;
+  }
+  setViewport(width, height) {
+    this.currentViewport = { width, height };
+  }
+  setCurrentUrl(url) {
+    this.currentUrl = url;
+  }
+  setScreenshotProvider(provider) {
+    this.screenshotProvider = provider;
+  }
+  setActionHandler(handler) {
+    this.actionHandler = handler;
+  }
+  /**
+   * Execute a task with the OpenAI CUA
+   * This is the main entry point for the agent
+   * @implements AgentClient.execute
+   */
+  execute(executionOptions) {
+    return __async(this, null, function* () {
+      const { options, logger } = executionOptions;
+      const { instruction } = options;
+      const maxSteps = options.maxSteps || 10;
+      let currentStep = 0;
+      let completed = false;
+      const actions = [];
+      const messageList = [];
+      let finalMessage = "";
+      this.reasoningItems.clear();
+      let inputItems = this.createInitialInputItems(instruction);
+      let previousResponseId = void 0;
+      try {
+        while (!completed && currentStep < maxSteps) {
+          logger({
+            category: "agent",
+            message: `Executing step ${currentStep + 1}/${maxSteps}`,
+            level: 2
+          });
+          const result = yield this.executeStep(
+            inputItems,
+            previousResponseId,
+            logger
+          );
+          actions.push(...result.actions);
+          completed = result.completed;
+          previousResponseId = result.responseId;
+          if (!completed) {
+            inputItems = result.nextInputItems;
+          }
+          if (result.message) {
+            messageList.push(result.message);
+            finalMessage = result.message;
+          }
+          currentStep++;
+        }
+        return {
+          success: completed,
+          actions,
+          message: finalMessage,
+          completed
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger({
+          category: "agent",
+          message: `Error executing agent task: ${errorMessage}`,
+          level: 0
+        });
+        return {
+          success: false,
+          actions,
+          message: `Failed to execute task: ${errorMessage}`,
+          completed: false
+        };
+      }
+    });
+  }
+  /**
+   * Execute a single step of the agent
+   * This coordinates the flow: Request → Get Action → Execute Action
+   */
+  executeStep(inputItems, previousResponseId, logger) {
+    return __async(this, null, function* () {
+      try {
+        const result = yield this.getAction(inputItems, previousResponseId);
+        const output = result.output;
+        const responseId = result.responseId;
+        for (const item of output) {
+          if (item.type === "reasoning") {
+            this.reasoningItems.set(item.id, item);
+          }
+        }
+        const stepActions = [];
+        for (const item of output) {
+          if (item.type === "computer_call" && this.isComputerCallItem(item)) {
+            const action = this.convertComputerCallToAction(item);
+            if (action) {
+              stepActions.push(action);
+            }
+          } else if (item.type === "function_call" && this.isFunctionCallItem(item)) {
+            const action = this.convertFunctionCallToAction(item);
+            if (action) {
+              stepActions.push(action);
+            }
+          }
+        }
+        let message = "";
+        for (const item of output) {
+          if (item.type === "message") {
+            if (item.content && Array.isArray(item.content)) {
+              for (const content of item.content) {
+                if (content.type === "output_text" && content.text) {
+                  message += content.text + "\n";
+                }
+              }
+            }
+          }
+        }
+        const nextInputItems = yield this.takeAction(output, logger);
+        const completed = output.length === 0 || output.every(
+          (item) => item.type === "message" || item.type === "reasoning"
+        );
+        return {
+          actions: stepActions,
+          message: message.trim(),
+          completed,
+          nextInputItems,
+          responseId
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger({
+          category: "agent",
+          message: `Error executing step: ${errorMessage}`,
+          level: 0
+        });
+        throw error;
+      }
+    });
+  }
+  isComputerCallItem(item) {
+    return item.type === "computer_call" && "call_id" in item && "action" in item && typeof item.action === "object";
+  }
+  isFunctionCallItem(item) {
+    return item.type === "function_call" && "call_id" in item && "name" in item && "arguments" in item;
+  }
+  createInitialInputItems(instruction) {
+    return [
+      {
+        role: "system",
+        content: this.userProvidedInstructions
+      },
+      {
+        role: "user",
+        content: instruction
+      }
+    ];
+  }
+  getAction(inputItems, previousResponseId) {
+    return __async(this, null, function* () {
+      try {
+        const requestParams = {
+          model: this.modelName,
+          tools: [
+            {
+              type: "computer_use_preview",
+              display_width: this.currentViewport.width,
+              display_height: this.currentViewport.height,
+              environment: this.environment
+            }
+          ],
+          input: inputItems,
+          truncation: "auto"
+        };
+        if (previousResponseId) {
+          requestParams.previous_response_id = previousResponseId;
+        }
+        let response;
+        if (this.remoteAgentClientHandler) {
+          response = yield this.remoteAgentClientHandler("openai", {
+            clientOptions: this.clientOptions,
+            body: requestParams
+          });
+        } else {
+          response = yield this.client.responses.create(requestParams);
+        }
+        this.lastResponseId = response.id;
+        return {
+          output: response.output,
+          responseId: response.id
+        };
+      } catch (error) {
+        console.error("Error getting action from OpenAI:", error);
+        throw error;
+      }
+    });
+  }
+  takeAction(output, logger) {
+    return __async(this, null, function* () {
+      const nextInputItems = [];
+      for (const item of output) {
+        if (item.type === "computer_call" && this.isComputerCallItem(item)) {
+          try {
+            const action = this.convertComputerCallToAction(item);
+            if (action && this.actionHandler) {
+              yield this.actionHandler(action);
+            }
+            const screenshot = yield this.captureScreenshot();
+            const outputItem = {
+              type: "computer_call_output",
+              call_id: item.call_id,
+              output: {
+                type: "input_image",
+                image_url: screenshot
+              }
+            };
+            if (this.currentUrl) {
+              const computerCallOutput = outputItem;
+              computerCallOutput.output.current_url = this.currentUrl;
+            }
+            if (item.pending_safety_checks && item.pending_safety_checks.length > 0) {
+              const computerCallOutput = outputItem;
+              computerCallOutput.acknowledged_safety_checks = item.pending_safety_checks;
+            }
+            nextInputItems.push(outputItem);
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger({
+              category: "agent",
+              message: `Error executing computer call: ${errorMessage}`,
+              level: 0
+            });
+            try {
+              const screenshot = yield this.captureScreenshot();
+              const errorOutputItem = {
+                type: "computer_call_output",
+                call_id: item.call_id,
+                output: {
+                  type: "input_image",
+                  image_url: screenshot,
+                  error: errorMessage
+                }
+              };
+              if (this.currentUrl) {
+                const computerCallOutput = errorOutputItem;
+                computerCallOutput.output.current_url = this.currentUrl;
+              }
+              if (item.pending_safety_checks && item.pending_safety_checks.length > 0) {
+                const computerCallOutput = errorOutputItem;
+                computerCallOutput.acknowledged_safety_checks = item.pending_safety_checks;
+              }
+              nextInputItems.push(errorOutputItem);
+            } catch (screenshotError) {
+              logger({
+                category: "agent",
+                message: `Error capturing screenshot: ${String(screenshotError)}`,
+                level: 0
+              });
+              nextInputItems.push({
+                type: "computer_call_output",
+                call_id: item.call_id,
+                output: `Error: ${errorMessage}`
+              });
+            }
+          }
+        } else if (item.type === "function_call" && this.isFunctionCallItem(item)) {
+          try {
+            const action = this.convertFunctionCallToAction(item);
+            if (action && this.actionHandler) {
+              yield this.actionHandler(action);
+            }
+            nextInputItems.push({
+              type: "function_call_output",
+              call_id: item.call_id,
+              output: "success"
+            });
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger({
+              category: "agent",
+              message: `Error executing function call: ${errorMessage}`,
+              level: 0
+            });
+            nextInputItems.push({
+              type: "function_call_output",
+              call_id: item.call_id,
+              output: `Error: ${errorMessage}`
+            });
+          }
+        }
+      }
+      return nextInputItems;
+    });
+  }
+  convertComputerCallToAction(call) {
+    const { action } = call;
+    return __spreadValues({
+      type: action.type
+    }, action);
+  }
+  convertFunctionCallToAction(call) {
+    try {
+      const args = JSON.parse(call.arguments);
+      return {
+        type: call.name,
+        params: args
+      };
+    } catch (error) {
+      console.error("Error parsing function call arguments:", error);
+      return null;
+    }
+  }
+  captureScreenshot(options) {
+    return __async(this, null, function* () {
+      if (options == null ? void 0 : options.base64Image) {
+        return `data:image/png;base64,${options.base64Image}`;
+      }
+      if (this.screenshotProvider) {
+        try {
+          const base64Image = yield this.screenshotProvider();
+          return `data:image/png;base64,${base64Image}`;
+        } catch (error) {
+          console.error("Error capturing screenshot:", error);
+          throw error;
+        }
+      }
+      throw new Error("Screenshot provider not available");
+    });
+  }
+};
+
+// lib/agent/AnthropicCUAClient.ts
+var import_sdk3 = __toESM(require("@anthropic-ai/sdk"));
+var AnthropicCUAClient = class extends AgentClient {
+  constructor(type, modelName, userProvidedInstructions, clientOptions, remoteAgentClientHandler) {
+    super(type, modelName, userProvidedInstructions);
+    this.currentViewport = { width: 1024, height: 768 };
+    this.thinkingBudget = null;
+    this.apiKey = (clientOptions == null ? void 0 : clientOptions.apiKey) || process.env.ANTHROPIC_API_KEY || "";
+    this.baseURL = (clientOptions == null ? void 0 : clientOptions.baseURL) || void 0;
+    if ((clientOptions == null ? void 0 : clientOptions.thinkingBudget) && typeof clientOptions.thinkingBudget === "number") {
+      this.thinkingBudget = clientOptions.thinkingBudget;
+    }
+    this.clientOptions = {
+      apiKey: this.apiKey
+    };
+    if (this.baseURL) {
+      this.clientOptions.baseUrl = this.baseURL;
+    }
+    this.remoteAgentClientHandler = remoteAgentClientHandler;
+    this.client = !remoteAgentClientHandler ? new import_sdk3.default(this.clientOptions) : null;
+  }
+  setViewport(width, height) {
+    this.currentViewport = { width, height };
+  }
+  setCurrentUrl(url) {
+    this.currentUrl = url;
+  }
+  setScreenshotProvider(provider) {
+    this.screenshotProvider = provider;
+  }
+  setActionHandler(handler) {
+    this.actionHandler = handler;
+  }
+  /**
+   * Execute a task with the Anthropic CUA
+   * This is the main entry point for the agent
+   * @implements AgentClient.execute
+   */
+  execute(executionOptions) {
+    return __async(this, null, function* () {
+      const { options, logger } = executionOptions;
+      const { instruction } = options;
+      const maxSteps = options.maxSteps || 10;
+      const waitBetweenSteps = options.waitBetweenSteps || 0;
+      let currentStep = 0;
+      let completed = false;
+      const actions = [];
+      const messageList = [];
+      let finalMessage = "";
+      let inputItems = this.createInitialInputItems(instruction);
+      logger({
+        category: "agent",
+        message: `Starting Anthropic agent execution with instruction: ${instruction}`,
+        level: 1
+      });
+      try {
+        while (!completed && currentStep < maxSteps) {
+          logger({
+            category: "agent",
+            message: `Executing step ${currentStep + 1}/${maxSteps}`,
+            level: 2
+          });
+          const result = yield this.executeStep(inputItems, logger);
+          if (result.actions.length > 0) {
+            logger({
+              category: "agent",
+              message: `Step ${currentStep + 1} performed ${result.actions.length} actions`,
+              level: 2
+            });
+            actions.push(...result.actions);
+          }
+          completed = result.completed;
+          if (!completed) {
+            inputItems = result.nextInputItems;
+          }
+          if (result.message) {
+            messageList.push(result.message);
+            finalMessage = result.message;
+          }
+          yield new Promise((resolve) => setTimeout(resolve, waitBetweenSteps));
+          currentStep++;
+        }
+        logger({
+          category: "agent",
+          message: `Anthropic agent execution completed: ${completed}, with ${actions.length} total actions performed`,
+          level: 1
+        });
+        return {
+          success: completed,
+          actions,
+          message: finalMessage,
+          completed
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger({
+          category: "agent",
+          message: `Error executing agent task: ${errorMessage}`,
+          level: 0
+        });
+        return {
+          success: false,
+          actions,
+          message: `Failed to execute task: ${errorMessage}`,
+          completed: false
+        };
+      }
+    });
+  }
+  executeStep(inputItems, logger) {
+    return __async(this, null, function* () {
+      try {
+        const result = yield this.getAction(inputItems);
+        const content = result.content;
+        logger({
+          category: "agent",
+          message: `Received response with ${content.length} content blocks`,
+          level: 2
+        });
+        const stepActions = [];
+        const toolUseItems = [];
+        let message = "";
+        for (const block of content) {
+          console.log("Processing block:", JSON.stringify(block, null, 2));
+          logger({
+            category: "agent",
+            message: `Processing block type: ${block.type}, id: ${block.id || "unknown"}`,
+            level: 2
+          });
+          if (block.type === "tool_use") {
+            logger({
+              category: "agent",
+              message: `Found tool_use block: ${JSON.stringify(block)}`,
+              level: 2
+            });
+            const toolUseItem = block;
+            toolUseItems.push(toolUseItem);
+            logger({
+              category: "agent",
+              message: `Added tool_use item: ${toolUseItem.name}, action: ${JSON.stringify(toolUseItem.input)}`,
+              level: 2
+            });
+            const action = this.convertToolUseToAction(toolUseItem);
+            if (action) {
+              logger({
+                category: "agent",
+                message: `Created action from tool_use: ${toolUseItem.name}, action: ${action.type}`,
+                level: 2
+              });
+              stepActions.push(action);
+            }
+          } else if (block.type === "text") {
+            const textBlock = block;
+            message += textBlock.text + "\n";
+            logger({
+              category: "agent",
+              message: `Found text block: ${textBlock.text.substring(0, 50)}...`,
+              level: 2
+            });
+          } else {
+            logger({
+              category: "agent",
+              message: `Found unknown block type: ${block.type}`,
+              level: 2
+            });
+          }
+        }
+        if (this.actionHandler && stepActions.length > 0) {
+          for (const action of stepActions) {
+            try {
+              logger({
+                category: "agent",
+                message: `Executing action: ${action.type}`,
+                level: 1
+              });
+              yield this.actionHandler(action);
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              logger({
+                category: "agent",
+                message: `Error executing action ${action.type}: ${errorMessage}`,
+                level: 0
+              });
+            }
+          }
+        }
+        const assistantMessage = {
+          role: "assistant",
+          content
+        };
+        const nextInputItems = [...inputItems];
+        nextInputItems.push(assistantMessage);
+        if (toolUseItems.length > 0) {
+          const toolResults = yield this.takeAction(toolUseItems, logger);
+          if (toolResults.length > 0) {
+            const userToolResultsMessage = {
+              role: "user",
+              content: toolResults
+            };
+            nextInputItems.push(userToolResultsMessage);
+          }
+        }
+        const completed = toolUseItems.length === 0;
+        logger({
+          category: "agent",
+          message: `Step processed ${toolUseItems.length} tool use items, completed: ${completed}`,
+          level: 2
+        });
+        return {
+          actions: stepActions,
+          message: message.trim(),
+          completed,
+          nextInputItems
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger({
+          category: "agent",
+          message: `Error executing step: ${errorMessage}`,
+          level: 0
+        });
+        throw error;
+      }
+    });
+  }
+  createInitialInputItems(instruction) {
+    return [
+      {
+        role: "system",
+        content: this.userProvidedInstructions
+      },
+      {
+        role: "user",
+        content: instruction
+      }
+    ];
+  }
+  getAction(inputItems) {
+    return __async(this, null, function* () {
+      try {
+        const messages = [];
+        for (const item of inputItems) {
+          if ("role" in item) {
+            if (item.role !== "system") {
+              messages.push(item);
+            }
+          }
+        }
+        const thinking = this.thinkingBudget ? { type: "enabled", budget_tokens: this.thinkingBudget } : void 0;
+        const modelToolMap = {
+          "claude-3-7-sonnet-20250219": {
+            type: "computer_20250124",
+            betas: ["computer-use-2025-01-24"]
+          },
+          "claude-3-5-sonnet-20241022": {
+            type: "computer_20241022",
+            betas: ["computer-use-2024-10-22"]
+          }
+        };
+        const requestParams = {
+          model: this.modelName,
+          max_tokens: 4096,
+          messages,
+          tools: [
+            {
+              // type: "computer_20250124", // Use the latest version for Claude 3.7 Sonnet
+              type: modelToolMap[this.modelName].type,
+              name: "computer",
+              display_width_px: this.currentViewport.width,
+              display_height_px: this.currentViewport.height,
+              display_number: 1
+            }
+          ],
+          // betas: ["computer-use-2025-01-24"],
+          betas: modelToolMap[this.modelName].betas
+        };
+        if (this.userProvidedInstructions) {
+          requestParams.system = this.userProvidedInstructions;
+        }
+        if (thinking) {
+          requestParams.thinking = thinking;
+        }
+        if (messages.length > 0) {
+          const firstMessage = messages[0];
+          const contentPreview = typeof firstMessage.content === "string" ? firstMessage.content.substring(0, 50) : "complex content";
+          console.log(
+            `Sending request to Anthropic with ${messages.length} messages and ${messages.length > 0 ? `first message role: ${messages[0].role}, content: ${contentPreview}...` : "no messages"}`
+          );
+        }
+        let response;
+        if (this.remoteAgentClientHandler) {
+          response = yield this.remoteAgentClientHandler("anthropic", {
+            clientOptions: this.clientOptions,
+            body: requestParams
+          });
+        } else {
+          response = yield this.client.beta.messages.create(requestParams);
+        }
+        this.lastMessageId = response.id;
+        return {
+          // Cast the response content to our internal type
+          content: response.content,
+          id: response.id
+        };
+      } catch (error) {
+        console.error("Error getting action from Anthropic:", error);
+        throw error;
+      }
+    });
+  }
+  takeAction(toolUseItems, logger) {
+    return __async(this, null, function* () {
+      const nextInputItems = [];
+      logger({
+        category: "agent",
+        message: `Taking action on ${toolUseItems.length} tool use items`,
+        level: 2
+      });
+      for (const item of toolUseItems) {
+        try {
+          logger({
+            category: "agent",
+            message: `Processing tool use: ${item.name}, id: ${item.id}, action: ${JSON.stringify(item.input)}`,
+            level: 2
+          });
+          if (item.name === "computer") {
+            const action = item.input.action;
+            logger({
+              category: "agent",
+              message: `Computer action type: ${action}`,
+              level: 2
+            });
+            const screenshot = yield this.captureScreenshot();
+            logger({
+              category: "agent",
+              message: `Screenshot captured, length: ${screenshot.length}`,
+              level: 2
+            });
+            const imageContent = [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: screenshot.replace(/^data:image\/png;base64,/, "")
+                }
+              }
+            ];
+            if (this.currentUrl) {
+              nextInputItems.push({
+                type: "tool_result",
+                tool_use_id: item.id,
+                content: [
+                  ...imageContent,
+                  {
+                    type: "text",
+                    text: `Current URL: ${this.currentUrl}`
+                  }
+                ]
+              });
+            } else {
+              nextInputItems.push({
+                type: "tool_result",
+                tool_use_id: item.id,
+                content: imageContent
+              });
+            }
+            logger({
+              category: "agent",
+              message: `Added computer tool result for tool_use_id: ${item.id}`,
+              level: 2
+            });
+          } else {
+            nextInputItems.push({
+              type: "tool_result",
+              tool_use_id: item.id,
+              content: "Tool executed successfully"
+            });
+            logger({
+              category: "agent",
+              message: `Added generic tool result for tool ${item.name}, tool_use_id: ${item.id}`,
+              level: 2
+            });
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger({
+            category: "agent",
+            message: `Error executing tool use: ${errorMessage}`,
+            level: 0
+          });
+          try {
+            if (item.name === "computer") {
+              const screenshot = yield this.captureScreenshot();
+              nextInputItems.push({
+                type: "tool_result",
+                tool_use_id: item.id,
+                content: [
+                  {
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: "image/png",
+                      data: screenshot.replace(/^data:image\/png;base64,/, "")
+                    }
+                  },
+                  {
+                    type: "text",
+                    text: `Error: ${errorMessage}`
+                  }
+                ]
+              });
+              logger({
+                category: "agent",
+                message: `Added error tool result with screenshot for tool_use_id: ${item.id}`,
+                level: 1
+              });
+            } else {
+              nextInputItems.push({
+                type: "tool_result",
+                tool_use_id: item.id,
+                content: `Error: ${errorMessage}`
+              });
+              logger({
+                category: "agent",
+                message: `Added error tool result for tool_use_id: ${item.id}`,
+                level: 1
+              });
+            }
+          } catch (screenshotError) {
+            logger({
+              category: "agent",
+              message: `Error capturing screenshot: ${String(screenshotError)}`,
+              level: 0
+            });
+            nextInputItems.push({
+              type: "tool_result",
+              tool_use_id: item.id,
+              content: `Error: ${errorMessage}`
+            });
+            logger({
+              category: "agent",
+              message: `Added text error tool result for tool_use_id: ${item.id}`,
+              level: 1
+            });
+          }
+        }
+      }
+      logger({
+        category: "agent",
+        message: `Prepared ${nextInputItems.length} input items for next request`,
+        level: 2
+      });
+      return nextInputItems;
+    });
+  }
+  convertToolUseToAction(item) {
+    try {
+      const { name, input } = item;
+      if (name === "computer") {
+        const action = input.action;
+        if (!action) {
+          console.warn("Missing action in tool use item:", item);
+          return null;
+        }
+        if (action === "screenshot") {
+          return __spreadValues({
+            type: "screenshot"
+          }, input);
+        } else if (action === "click") {
+          return __spreadValues({
+            type: "click",
+            x: input.x,
+            y: input.y,
+            button: input.button || "left"
+          }, input);
+        } else if (action === "type") {
+          return __spreadValues({
+            type: "type",
+            text: input.text
+          }, input);
+        } else if (action === "keypress") {
+          return __spreadValues({
+            type: "keypress",
+            keys: input.keys
+          }, input);
+        } else if (action === "double_click" || action === "doubleClick") {
+          return __spreadValues({
+            type: action,
+            x: input.x,
+            y: input.y
+          }, input);
+        } else if (action === "scroll") {
+          const x = input.x || (input.coordinate ? input.coordinate[0] : 0);
+          const y = input.y || (input.coordinate ? input.coordinate[1] : 0);
+          let scroll_x = 0;
+          let scroll_y = 0;
+          const scrollAmount = input.scroll_amount || 5;
+          const scrollMultiplier = 100;
+          if (input.scroll_direction) {
+            const direction = input.scroll_direction;
+            if (direction === "down") {
+              scroll_y = scrollAmount * scrollMultiplier;
+            } else if (direction === "up") {
+              scroll_y = -scrollAmount * scrollMultiplier;
+            } else if (direction === "right") {
+              scroll_x = scrollAmount * scrollMultiplier;
+            } else if (direction === "left") {
+              scroll_x = -scrollAmount * scrollMultiplier;
+            }
+          } else {
+            scroll_x = input.scroll_x || 0;
+            scroll_y = input.scroll_y || 0;
+          }
+          return __spreadValues({
+            type: "scroll",
+            x,
+            y,
+            scroll_x,
+            scroll_y
+          }, input);
+        } else if (action === "move") {
+          const coordinates = input.coordinate;
+          const x = coordinates ? coordinates[0] : input.x || 0;
+          const y = coordinates ? coordinates[1] : input.y || 0;
+          return __spreadValues({
+            type: "move",
+            x,
+            y
+          }, input);
+        } else if (action === "drag") {
+          const path4 = input.path || (input.coordinate ? [
+            {
+              x: input.start_coordinate[0],
+              y: input.start_coordinate[1]
+            },
+            {
+              x: input.coordinate[0],
+              y: input.coordinate[1]
+            }
+          ] : []);
+          return __spreadValues({
+            type: "drag",
+            path: path4
+          }, input);
+        } else if (action === "wait") {
+          return __spreadValues({
+            type: "wait"
+          }, input);
+        } else if (action === "key") {
+          const text = input.text;
+          let mappedKey = text;
+          if (text === "Return" || text === "return" || text === "Enter" || text === "enter") {
+            mappedKey = "Enter";
+          } else if (text === "Tab" || text === "tab") {
+            mappedKey = "Tab";
+          } else if (text === "Escape" || text === "escape" || text === "Esc" || text === "esc") {
+            mappedKey = "Escape";
+          } else if (text === "Backspace" || text === "backspace") {
+            mappedKey = "Backspace";
+          } else if (text === "Delete" || text === "delete" || text === "Del" || text === "del") {
+            mappedKey = "Delete";
+          } else if (text === "ArrowUp" || text === "Up" || text === "up") {
+            mappedKey = "ArrowUp";
+          } else if (text === "ArrowDown" || text === "Down" || text === "down") {
+            mappedKey = "ArrowDown";
+          } else if (text === "ArrowLeft" || text === "Left" || text === "left") {
+            mappedKey = "ArrowLeft";
+          } else if (text === "ArrowRight" || text === "Right" || text === "right") {
+            mappedKey = "ArrowRight";
+          }
+          return __spreadValues({
+            type: "key",
+            text: mappedKey
+          }, input);
+        } else if (action === "left_click") {
+          const coordinates = input.coordinate;
+          const x = coordinates ? coordinates[0] : input.x || 0;
+          const y = coordinates ? coordinates[1] : input.y || 0;
+          return __spreadValues({
+            type: "click",
+            x,
+            y,
+            button: "left"
+          }, input);
+        } else {
+          console.log(`Using default action mapping for ${action}`);
+          return __spreadValues({
+            type: action
+          }, input);
+        }
+      } else if (name === "str_replace_editor" || name === "bash") {
+        return {
+          type: name,
+          params: input
+        };
+      }
+      console.warn(`Unknown tool name: ${name}`);
+      return null;
+    } catch (error) {
+      console.error("Error converting tool use to action:", error);
+      return null;
+    }
+  }
+  captureScreenshot(options) {
+    return __async(this, null, function* () {
+      if (options == null ? void 0 : options.base64Image) {
+        return `data:image/png;base64,${options.base64Image}`;
+      }
+      if (this.screenshotProvider) {
+        try {
+          const base64Image = yield this.screenshotProvider();
+          return `data:image/png;base64,${base64Image}`;
+        } catch (error) {
+          console.error("Error capturing screenshot:", error);
+          throw error;
+        }
+      }
+      throw new Error("Screenshot provider not available");
+    });
+  }
+};
+
+// lib/agent/AgentProvider.ts
+var modelToAgentProviderMap = {
+  "computer-use-preview-2025-02-04": "openai",
+  "computer-use-preview-2025-03-11": "openai",
+  "claude-3-5-sonnet-20240620": "anthropic",
+  "claude-3-5-sonnet-20241022": "anthropic",
+  "claude-3-7-sonnet-20250219": "anthropic"
+  // Add newer Claude models
+};
+var AgentProvider = class _AgentProvider {
+  /**
+   * Create a new agent provider
+   */
+  constructor(logger) {
+    this.logger = logger;
+  }
+  getClient(modelName, clientOptions, userProvidedInstructions, remoteAgentClientHandler) {
+    const type = _AgentProvider.getAgentProvider(modelName);
+    this.logger({
+      category: "agent",
+      message: `Getting agent client for type: ${type}, model: ${modelName}`,
+      level: 2
+    });
+    try {
+      switch (type) {
+        case "openai":
+          return new OpenAICUAClient(
+            type,
+            modelName,
+            userProvidedInstructions,
+            clientOptions,
+            remoteAgentClientHandler
+          );
+        case "anthropic":
+          return new AnthropicCUAClient(
+            type,
+            modelName,
+            userProvidedInstructions,
+            clientOptions,
+            remoteAgentClientHandler
+          );
+        default:
+          throw new Error(`Unknown agent type: ${type}`);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger({
+        category: "agent",
+        message: `Error creating agent client: ${errorMessage}`,
+        level: 0
+      });
+      throw error;
+    }
+  }
+  static getAgentProvider(modelName) {
+    if (modelName in modelToAgentProviderMap) {
+      return modelToAgentProviderMap[modelName];
+    }
+    throw new Error(`Unknown model name: ${modelName}`);
+  }
+};
+
+// lib/agent/StagehandAgent.ts
+var StagehandAgent = class {
+  constructor(client, logger) {
+    this.client = client;
+    this.logger = logger;
+  }
+  execute(optionsOrInstruction) {
+    return __async(this, null, function* () {
+      const options = typeof optionsOrInstruction === "string" ? { instruction: optionsOrInstruction } : optionsOrInstruction;
+      this.logger({
+        category: "agent",
+        message: `Executing agent task: ${options.instruction}`,
+        level: 1
+      });
+      const executionOptions = {
+        options,
+        logger: this.logger,
+        retries: 3
+      };
+      return yield this.client.execute(executionOptions);
+    });
+  }
+  getModelName() {
+    return this.client.modelName;
+  }
+  getAgentType() {
+    return this.client.type;
+  }
+};
+
+// lib/handlers/agentHandler.ts
+var StagehandAgentHandler = class {
+  constructor(stagehandPage, logger, options) {
+    this.stagehandPage = stagehandPage;
+    this.logger = logger;
+    this.options = options;
+    this.provider = new AgentProvider(logger);
+    const client = this.provider.getClient(
+      options.modelName,
+      options.clientOptions || {},
+      options.userProvidedInstructions,
+      options.remoteAgentClientHandler
+    );
+    this.agentClient = client;
+    this.setupAgentClient();
+    this.agent = new StagehandAgent(client, logger);
+  }
+  setupAgentClient() {
+    this.agentClient.setScreenshotProvider(() => __async(this, null, function* () {
+      const screenshot = yield this.stagehandPage.page.screenshot({
+        fullPage: false
+      });
+      return screenshot.toString("base64");
+    }));
+    this.agentClient.setActionHandler((action) => __async(this, null, function* () {
+      var _a;
+      const defaultDelay = 1e3;
+      const waitBetweenActions = ((_a = this.options.clientOptions) == null ? void 0 : _a.waitBetweenActions) || defaultDelay;
+      try {
+        try {
+          yield this.injectCursor();
+        } catch (e) {
+        }
+        yield new Promise((resolve) => setTimeout(resolve, 500));
+        yield this.executeAction(action);
+        yield new Promise((resolve) => setTimeout(resolve, waitBetweenActions));
+        try {
+          yield this.captureAndSendScreenshot();
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger({
+            category: "agent",
+            message: `Warning: Failed to take screenshot after action: ${errorMessage}. Continuing execution.`,
+            level: 1
+          });
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger({
+          category: "agent",
+          message: `Error executing action ${action.type}: ${errorMessage}`,
+          level: 0
+        });
+        throw error;
+      }
+    }));
+    this.updateClientViewport();
+    this.updateClientUrl();
+  }
+  /**
+   * Execute a task with the agent
+   */
+  execute(optionsOrInstruction) {
+    return __async(this, null, function* () {
+      const options = typeof optionsOrInstruction === "string" ? { instruction: optionsOrInstruction } : optionsOrInstruction;
+      this.logger({
+        category: "agent",
+        message: `Executing agent task: ${options.instruction}`,
+        level: 1
+      });
+      try {
+        yield this.injectCursor();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger({
+          category: "agent",
+          message: `Warning: Failed to inject cursor: ${errorMessage}. Continuing with execution.`,
+          level: 1
+        });
+      }
+      if (options.autoScreenshot !== false) {
+        try {
+          yield this.captureAndSendScreenshot();
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger({
+            category: "agent",
+            message: `Warning: Failed to take initial screenshot: ${errorMessage}. Continuing with execution.`,
+            level: 1
+          });
+        }
+      }
+      const result = yield this.agent.execute(optionsOrInstruction);
+      return result;
+    });
+  }
+  /**
+   * Execute a single action on the page
+   */
+  executeAction(action) {
+    return __async(this, null, function* () {
+      try {
+        switch (action.type) {
+          case "click": {
+            const { x, y, button = "left" } = action;
+            yield this.updateCursorPosition(x, y);
+            yield this.animateClick(x, y);
+            yield new Promise((resolve) => setTimeout(resolve, 300));
+            yield this.stagehandPage.page.mouse.click(x, y, {
+              button
+            });
+            return { success: true };
+          }
+          case "double_click": {
+            const { x, y } = action;
+            yield this.updateCursorPosition(x, y);
+            yield this.animateClick(x, y);
+            yield new Promise((resolve) => setTimeout(resolve, 200));
+            yield this.animateClick(x, y);
+            yield new Promise((resolve) => setTimeout(resolve, 200));
+            yield this.stagehandPage.page.mouse.dblclick(
+              x,
+              y
+            );
+            return { success: true };
+          }
+          // Handle the case for "doubleClick" as well for backward compatibility
+          case "doubleClick": {
+            const { x, y } = action;
+            yield this.updateCursorPosition(x, y);
+            yield this.animateClick(x, y);
+            yield new Promise((resolve) => setTimeout(resolve, 200));
+            yield this.animateClick(x, y);
+            yield new Promise((resolve) => setTimeout(resolve, 200));
+            yield this.stagehandPage.page.mouse.dblclick(
+              x,
+              y
+            );
+            return { success: true };
+          }
+          case "type": {
+            const { text } = action;
+            yield this.stagehandPage.page.keyboard.type(text);
+            return { success: true };
+          }
+          case "keypress": {
+            const { keys } = action;
+            if (Array.isArray(keys)) {
+              for (const key of keys) {
+                if (key.includes("ENTER")) {
+                  yield this.stagehandPage.page.keyboard.press("Enter");
+                } else if (key.includes("SPACE")) {
+                  yield this.stagehandPage.page.keyboard.press(" ");
+                } else if (key.includes("TAB")) {
+                  yield this.stagehandPage.page.keyboard.press("Tab");
+                } else if (key.includes("ESCAPE") || key.includes("ESC")) {
+                  yield this.stagehandPage.page.keyboard.press("Escape");
+                } else if (key.includes("BACKSPACE")) {
+                  yield this.stagehandPage.page.keyboard.press("Backspace");
+                } else if (key.includes("DELETE")) {
+                  yield this.stagehandPage.page.keyboard.press("Delete");
+                } else if (key.includes("ARROW_UP")) {
+                  yield this.stagehandPage.page.keyboard.press("ArrowUp");
+                } else if (key.includes("ARROW_DOWN")) {
+                  yield this.stagehandPage.page.keyboard.press("ArrowDown");
+                } else if (key.includes("ARROW_LEFT")) {
+                  yield this.stagehandPage.page.keyboard.press("ArrowLeft");
+                } else if (key.includes("ARROW_RIGHT")) {
+                  yield this.stagehandPage.page.keyboard.press("ArrowRight");
+                } else {
+                  const playwrightKey = this.convertKeyName(key);
+                  yield this.stagehandPage.page.keyboard.press(playwrightKey);
+                }
+              }
+            }
+            return { success: true };
+          }
+          case "scroll": {
+            const { x, y, scroll_x = 0, scroll_y = 0 } = action;
+            yield this.stagehandPage.page.mouse.move(x, y);
+            yield this.stagehandPage.page.evaluate(
+              ({ scrollX, scrollY }) => window.scrollBy(scrollX, scrollY),
+              { scrollX: scroll_x, scrollY: scroll_y }
+            );
+            return { success: true };
+          }
+          case "drag": {
+            const { path: path4 } = action;
+            if (Array.isArray(path4) && path4.length >= 2) {
+              const start = path4[0];
+              yield this.updateCursorPosition(start.x, start.y);
+              yield this.stagehandPage.page.mouse.move(start.x, start.y);
+              yield this.stagehandPage.page.mouse.down();
+              for (let i = 1; i < path4.length; i++) {
+                yield this.updateCursorPosition(path4[i].x, path4[i].y);
+                yield this.stagehandPage.page.mouse.move(path4[i].x, path4[i].y);
+              }
+              yield this.stagehandPage.page.mouse.up();
+            }
+            return { success: true };
+          }
+          case "move": {
+            const { x, y } = action;
+            yield this.updateCursorPosition(x, y);
+            yield this.stagehandPage.page.mouse.move(x, y);
+            return { success: true };
+          }
+          case "wait": {
+            yield new Promise((resolve) => setTimeout(resolve, 1e3));
+            return { success: true };
+          }
+          case "screenshot": {
+            return { success: true };
+          }
+          case "function": {
+            const { name, arguments: args = {} } = action;
+            if (name === "goto" && typeof args === "object" && args !== null && "url" in args) {
+              yield this.stagehandPage.page.goto(args.url);
+              this.updateClientUrl();
+              return { success: true };
+            } else if (name === "back") {
+              yield this.stagehandPage.page.goBack();
+              this.updateClientUrl();
+              return { success: true };
+            } else if (name === "forward") {
+              yield this.stagehandPage.page.goForward();
+              this.updateClientUrl();
+              return { success: true };
+            } else if (name === "reload") {
+              yield this.stagehandPage.page.reload();
+              this.updateClientUrl();
+              return { success: true };
+            }
+            return {
+              success: false,
+              error: `Unsupported function: ${name}`
+            };
+          }
+          case "key": {
+            const { text } = action;
+            if (text === "Return" || text === "Enter") {
+              yield this.stagehandPage.page.keyboard.press("Enter");
+            } else if (text === "Tab") {
+              yield this.stagehandPage.page.keyboard.press("Tab");
+            } else if (text === "Escape" || text === "Esc") {
+              yield this.stagehandPage.page.keyboard.press("Escape");
+            } else if (text === "Backspace") {
+              yield this.stagehandPage.page.keyboard.press("Backspace");
+            } else if (text === "Page_Up") {
+              yield this.stagehandPage.page.keyboard.press("PageUp");
+            } else if (text === "Page_Down") {
+              yield this.stagehandPage.page.keyboard.press("PageDown");
+            } else {
+              yield this.stagehandPage.page.keyboard.press(text);
+            }
+            return { success: true };
+          }
+          default:
+            return {
+              success: false,
+              error: `Unsupported action type: ${action.type}`
+            };
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger({
+          category: "agent",
+          message: `Error executing action ${action.type}: ${errorMessage}`,
+          level: 0
+        });
+        return {
+          success: false,
+          error: errorMessage
+        };
+      }
+    });
+  }
+  updateClientViewport() {
+    const viewportSize = this.stagehandPage.page.viewportSize();
+    if (viewportSize) {
+      this.agentClient.setViewport(viewportSize.width, viewportSize.height);
+    }
+  }
+  updateClientUrl() {
+    const url = this.stagehandPage.page.url();
+    this.agentClient.setCurrentUrl(url);
+  }
+  getAgent() {
+    return this.agent;
+  }
+  getClient() {
+    return this.agentClient;
+  }
+  captureAndSendScreenshot() {
+    return __async(this, null, function* () {
+      this.logger({
+        category: "agent",
+        message: "Taking screenshot and sending to agent",
+        level: 1
+      });
+      try {
+        const screenshot = yield this.stagehandPage.page.screenshot({
+          type: "png",
+          fullPage: false
+        });
+        const base64Image = screenshot.toString("base64");
+        return yield this.agentClient.captureScreenshot({
+          base64Image,
+          currentUrl: this.stagehandPage.page.url()
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        this.logger({
+          category: "agent",
+          message: `Error capturing screenshot: ${errorMessage}`,
+          level: 0
+        });
+        return null;
+      }
+    });
+  }
+  /**
+   * Inject a cursor element into the page for visual feedback
+   */
+  injectCursor() {
+    return __async(this, null, function* () {
+      try {
+        const CURSOR_ID = "stagehand-cursor";
+        const HIGHLIGHT_ID = "stagehand-highlight";
+        const cursorExists = yield this.stagehandPage.page.evaluate(
+          (id) => {
+            return !!document.getElementById(id);
+          },
+          CURSOR_ID
+        );
+        if (cursorExists) {
+          return;
+        }
+        yield this.stagehandPage.page.evaluate(`
+        (function(cursorId, highlightId) {
+          // Create cursor element
+          const cursor = document.createElement('div');
+          cursor.id = cursorId;
+          
+          // Use the provided SVG for a custom cursor
+          cursor.innerHTML = \`
+          <svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 28 28" width="28" height="28">
+            <polygon fill="#000000" points="9.2,7.3 9.2,18.5 12.2,15.6 12.6,15.5 17.4,15.5"/>
+            <rect x="12.5" y="13.6" transform="matrix(0.9221 -0.3871 0.3871 0.9221 -5.7605 6.5909)" width="2" height="8" fill="#000000"/>
+          </svg>
+          \`;
+          
+          // Style the cursor
+          cursor.style.position = 'absolute';
+          cursor.style.top = '0';
+          cursor.style.left = '0';
+          cursor.style.width = '28px';
+          cursor.style.height = '28px';
+          cursor.style.pointerEvents = 'none';
+          cursor.style.zIndex = '9999999';
+          cursor.style.transform = 'translate(-4px, -4px)'; // Adjust to align the pointer tip
+          
+          // Create highlight element for click animation
+          const highlight = document.createElement('div');
+          highlight.id = highlightId;
+          highlight.style.position = 'absolute';
+          highlight.style.width = '20px';
+          highlight.style.height = '20px';
+          highlight.style.borderRadius = '50%';
+          highlight.style.backgroundColor = 'rgba(66, 134, 244, 0)';
+          highlight.style.transform = 'translate(-50%, -50%) scale(0)';
+          highlight.style.pointerEvents = 'none';
+          highlight.style.zIndex = '9999998';
+          highlight.style.transition = 'transform 0.3s ease-out, opacity 0.3s ease-out';
+          highlight.style.opacity = '0';
+          
+          // Add elements to the document
+          document.body.appendChild(cursor);
+          document.body.appendChild(highlight);
+          
+          // Add a function to update cursor position
+          window.__updateCursorPosition = function(x, y) {
+            if (cursor) {
+              cursor.style.transform = \`translate(\${x - 4}px, \${y - 4}px)\`;
+            }
+          };
+          
+          // Add a function to animate click
+          window.__animateClick = function(x, y) {
+            if (highlight) {
+              highlight.style.left = \`\${x}px\`;
+              highlight.style.top = \`\${y}px\`;
+              highlight.style.transform = 'translate(-50%, -50%) scale(1)';
+              highlight.style.opacity = '1';
+              
+              setTimeout(() => {
+                highlight.style.transform = 'translate(-50%, -50%) scale(0)';
+                highlight.style.opacity = '0';
+              }, 300);
+            }
+          };
+        })('${CURSOR_ID}', '${HIGHLIGHT_ID}');
+      `);
+        this.logger({
+          category: "agent",
+          message: "Cursor injected for visual feedback",
+          level: 1
+        });
+      } catch (error) {
+        this.logger({
+          category: "agent",
+          message: `Failed to inject cursor: ${error}`,
+          level: 0
+        });
+      }
+    });
+  }
+  /**
+   * Update the cursor position on the page
+   */
+  updateCursorPosition(x, y) {
+    return __async(this, null, function* () {
+      try {
+        yield this.stagehandPage.page.evaluate(
+          ({ x: x2, y: y2 }) => {
+            if (window.__updateCursorPosition) {
+              window.__updateCursorPosition(x2, y2);
+            }
+          },
+          { x, y }
+        );
+      } catch (e) {
+      }
+    });
+  }
+  /**
+   * Animate a click at the given position
+   */
+  animateClick(x, y) {
+    return __async(this, null, function* () {
+      try {
+        yield this.stagehandPage.page.evaluate(
+          ({ x: x2, y: y2 }) => {
+            if (window.__animateClick) {
+              window.__animateClick(x2, y2);
+            }
+          },
+          { x, y }
+        );
+      } catch (e) {
+      }
+    });
+  }
+  convertKeyName(key) {
+    const keyMap = {
+      ENTER: "Enter",
+      ESCAPE: "Escape",
+      BACKSPACE: "Backspace",
+      TAB: "Tab",
+      SPACE: " ",
+      ARROWUP: "ArrowUp",
+      ARROWDOWN: "ArrowDown",
+      ARROWLEFT: "ArrowLeft",
+      ARROWRIGHT: "ArrowRight",
+      UP: "ArrowUp",
+      DOWN: "ArrowDown",
+      LEFT: "ArrowLeft",
+      RIGHT: "ArrowRight",
+      SHIFT: "Shift",
+      CONTROL: "Control",
+      ALT: "Alt",
+      META: "Meta",
+      COMMAND: "Meta",
+      CMD: "Meta",
+      CTRL: "Control",
+      DELETE: "Delete",
+      HOME: "Home",
+      END: "End",
+      PAGEUP: "PageUp",
+      PAGEDOWN: "PageDown"
+    };
+    const upperKey = key.toUpperCase();
+    return keyMap[upperKey] || key;
+  }
+};
+
+// types/operator.ts
 var import_zod4 = require("zod");
-var AvailableModelSchema = import_zod4.z.enum([
+var operatorResponseSchema = import_zod4.z.object({
+  reasoning: import_zod4.z.string().describe(
+    "The reasoning for the step taken. If this step's method is `close`, the goal was to extract data, and the task was successful, state the data that was extracted."
+  ),
+  method: import_zod4.z.enum([
+    "act",
+    "extract",
+    "goto",
+    "close",
+    "wait",
+    "navback",
+    "refresh"
+  ]).describe(`The action to perform on the page based off of the goal and the current state of the page.
+      goto: Navigate to a specific URL.
+      act: Perform an action on the page.  
+      extract: Extract data from the page.
+      close: The task is complete, close the browser.
+      wait: Wait for a period of time.
+      navback: Navigate back to the previous page. Do not navigate back if you are already on the first page.
+      refresh: Refresh the page.`),
+  parameters: import_zod4.z.string().describe(
+    `The parameter for the action. Only pass in a parameter for the following methods:
+        - act: The action to perform. e.g. "click on the submit button" or "type [email] into the email input field and press enter"
+        - extract: The data to extract. e.g. "the title of the article". If you want to extract all of the text on the page, leave this undefined.
+        - wait: The amount of time to wait in milliseconds.
+        - goto: The URL to navigate to. e.g. "https://www.google.com"
+        The other methods do not require a parameter.`
+  ).optional(),
+  taskComplete: import_zod4.z.boolean().describe(
+    "Whether the task is complete. If true, the task is complete and no more steps are needed. If you chose to close the task because the goal is not achievable, set this to false."
+  )
+});
+var operatorSummarySchema = import_zod4.z.object({
+  answer: import_zod4.z.string().describe("The final answer to the original instruction.")
+});
+
+// lib/handlers/operatorHandler.ts
+var StagehandOperatorHandler = class {
+  constructor(stagehandPage, logger, llmClient) {
+    this.stagehandPage = stagehandPage;
+    this.logger = logger;
+    this.llmClient = llmClient;
+  }
+  execute(instructionOrOptions) {
+    return __async(this, null, function* () {
+      const options = typeof instructionOrOptions === "string" ? { instruction: instructionOrOptions } : instructionOrOptions;
+      this.messages = [buildOperatorSystemPrompt(options.instruction)];
+      let completed = false;
+      let currentStep = 0;
+      const maxSteps = options.maxSteps || 10;
+      const actions = [];
+      while (!completed && currentStep < maxSteps) {
+        const url = this.stagehandPage.page.url();
+        if (!url || url === "about:blank") {
+          this.messages.push({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "No page is currently loaded. The first step should be a 'goto' action to navigate to a URL."
+              }
+            ]
+          });
+        } else {
+          const screenshot = yield this.stagehandPage.page.screenshot({
+            type: "png",
+            fullPage: false
+          });
+          const base64Image = screenshot.toString("base64");
+          let messageText = `Here is a screenshot of the current page (URL: ${url}):`;
+          messageText = `Previous actions were: ${actions.map((action) => {
+            let result2 = "";
+            if (action.type === "act") {
+              const args = action.playwrightArguments;
+              result2 = `Performed a "${args.method}" action ${args.arguments.length > 0 ? `with arguments: ${args.arguments.map((arg) => `"${arg}"`).join(", ")}` : ""} on "${args.description}"`;
+            } else if (action.type === "extract") {
+              result2 = `Extracted data: ${action.extractionResult}`;
+            }
+            return `[${action.type}] ${action.reasoning}. Result: ${result2}`;
+          }).join("\n")}
+
+${messageText}`;
+          this.messages.push({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: messageText
+              },
+              this.llmClient.type === "anthropic" ? {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: base64Image
+                },
+                text: "the screenshot of the current page"
+              } : {
+                type: "image_url",
+                image_url: { url: `data:image/png;base64,${base64Image}` }
+              }
+            ]
+          });
+        }
+        const result = yield this.getNextStep(currentStep);
+        if (result.method === "close") {
+          completed = true;
+        }
+        let playwrightArguments;
+        if (result.method === "act") {
+          [playwrightArguments] = yield this.stagehandPage.page.observe(
+            result.parameters
+          );
+        }
+        let extractionResult;
+        if (result.method === "extract") {
+          extractionResult = yield this.stagehandPage.page.extract(
+            result.parameters
+          );
+        }
+        yield this.executeAction(result, playwrightArguments, extractionResult);
+        actions.push({
+          type: result.method,
+          reasoning: result.reasoning,
+          taskCompleted: result.taskComplete,
+          parameters: result.parameters,
+          playwrightArguments,
+          extractionResult
+        });
+        currentStep++;
+      }
+      return {
+        success: true,
+        message: yield this.getSummary(options.instruction),
+        actions,
+        completed: actions[actions.length - 1].taskCompleted
+      };
+    });
+  }
+  getNextStep(currentStep) {
+    return __async(this, null, function* () {
+      const { data: response } = yield this.llmClient.createChatCompletion({
+        options: {
+          messages: this.messages,
+          response_model: {
+            name: "operatorResponseSchema",
+            schema: operatorResponseSchema
+          },
+          requestId: `operator-step-${currentStep}`
+        },
+        logger: this.logger
+      });
+      return response;
+    });
+  }
+  getSummary(goal) {
+    return __async(this, null, function* () {
+      const { data: response } = yield this.llmClient.createChatCompletion({
+        options: {
+          messages: [
+            ...this.messages,
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: `Now use the steps taken to answer the original instruction of ${goal}.`
+                }
+              ]
+            }
+          ],
+          response_model: {
+            name: "operatorSummarySchema",
+            schema: operatorSummarySchema
+          },
+          requestId: "operator-summary"
+        },
+        logger: this.logger
+      });
+      return response.answer;
+    });
+  }
+  executeAction(action, playwrightArguments, extractionResult) {
+    return __async(this, null, function* () {
+      const { method, parameters } = action;
+      const page = this.stagehandPage.page;
+      if (method === "close") {
+        return;
+      }
+      switch (method) {
+        case "act":
+          if (!playwrightArguments) {
+            throw new Error("No playwright arguments provided");
+          }
+          yield page.act(playwrightArguments);
+          break;
+        case "extract":
+          if (!extractionResult) {
+            throw new Error("No extraction result provided");
+          }
+          return extractionResult;
+        case "goto":
+          yield page.goto(parameters, { waitUntil: "load" });
+          break;
+        case "wait":
+          yield page.waitForTimeout(parseInt(parameters));
+          break;
+        case "navback":
+          yield page.goBack();
+          break;
+        case "refresh":
+          yield page.reload();
+          break;
+        default:
+          throw new Error(`Unknown action: ${method}`);
+      }
+    });
+  }
+};
+
+// types/model.ts
+var import_zod5 = require("zod");
+var AvailableModelSchema = import_zod5.z.enum([
   "gpt-4o",
   "gpt-4o-mini",
   "gpt-4o-2024-08-06",
@@ -5907,7 +8331,7 @@ function getBrowser(apiKey, projectId, env = "LOCAL", headless = false, logger, 
       let sessionUrl = void 0;
       let sessionId;
       let connectUrl;
-      const browserbase = new import_sdk3.Browserbase({
+      const browserbase = new import_sdk4.Browserbase({
         apiKey
       });
       if (browserbaseSessionID) {
@@ -6030,34 +8454,34 @@ function getBrowser(apiKey, projectId, env = "LOCAL", headless = false, logger, 
       }
       let userDataDir = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.userDataDir;
       if (!userDataDir) {
-        const tmpDirPath = import_path.default.join(import_os.default.tmpdir(), "stagehand");
-        if (!import_fs.default.existsSync(tmpDirPath)) {
-          import_fs.default.mkdirSync(tmpDirPath, { recursive: true });
+        const tmpDirPath = import_path2.default.join(import_os.default.tmpdir(), "stagehand");
+        if (!import_fs2.default.existsSync(tmpDirPath)) {
+          import_fs2.default.mkdirSync(tmpDirPath, { recursive: true });
         }
-        const tmpDir = import_fs.default.mkdtempSync(import_path.default.join(tmpDirPath, "ctx_"));
-        import_fs.default.mkdirSync(import_path.default.join(tmpDir, "userdir/Default"), { recursive: true });
+        const tmpDir = import_fs2.default.mkdtempSync(import_path2.default.join(tmpDirPath, "ctx_"));
+        import_fs2.default.mkdirSync(import_path2.default.join(tmpDir, "userdir/Default"), { recursive: true });
         const defaultPreferences = {
           plugins: {
             always_open_pdf_externally: true
           }
         };
-        import_fs.default.writeFileSync(
-          import_path.default.join(tmpDir, "userdir/Default/Preferences"),
+        import_fs2.default.writeFileSync(
+          import_path2.default.join(tmpDir, "userdir/Default/Preferences"),
           JSON.stringify(defaultPreferences)
         );
-        userDataDir = import_path.default.join(tmpDir, "userdir");
+        userDataDir = import_path2.default.join(tmpDir, "userdir");
       }
       let downloadsPath = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.downloadsPath;
       if (!downloadsPath) {
-        downloadsPath = import_path.default.join(process.cwd(), "downloads");
-        import_fs.default.mkdirSync(downloadsPath, { recursive: true });
+        downloadsPath = import_path2.default.join(process.cwd(), "downloads");
+        import_fs2.default.mkdirSync(downloadsPath, { recursive: true });
       }
       const context = yield import_test2.chromium.launchPersistentContext(userDataDir, {
         acceptDownloads: (_a = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.acceptDownloads) != null ? _a : true,
         headless: (_b = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.headless) != null ? _b : headless,
         viewport: {
-          width: (_d = (_c = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.viewport) == null ? void 0 : _c.width) != null ? _d : 1250,
-          height: (_f = (_e = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.viewport) == null ? void 0 : _e.height) != null ? _f : 800
+          width: (_d = (_c = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.viewport) == null ? void 0 : _c.width) != null ? _d : 1024,
+          height: (_f = (_e = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.viewport) == null ? void 0 : _e.height) != null ? _f : 768
         },
         locale: (_g = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.locale) != null ? _g : "en-US",
         timezoneId: (_h = localBrowserLaunchOptions == null ? void 0 : localBrowserLaunchOptions.timezoneId) != null ? _h : "America/New_York",
@@ -6128,7 +8552,7 @@ function applyStealthScripts(context) {
 var defaultLogger = (logLine) => __async(void 0, null, function* () {
   console.log(logLineToString(logLine));
 });
-var Stagehand = class {
+var Stagehand3 = class {
   constructor({
     env,
     apiKey,
@@ -6152,11 +8576,26 @@ var Stagehand = class {
     waitForCaptchaSolves = false,
     browserContext,
     remoteClientHandler,
-    actTimeoutMs = 6e4
+    actTimeoutMs = 6e4,
+    logInferenceToFile = false
   } = {
     env: "BROWSERBASE"
   }) {
     this.cleanupCalled = false;
+    this.stagehandMetrics = {
+      actPromptTokens: 0,
+      actCompletionTokens: 0,
+      actInferenceTimeMs: 0,
+      extractPromptTokens: 0,
+      extractCompletionTokens: 0,
+      extractInferenceTimeMs: 0,
+      observePromptTokens: 0,
+      observeCompletionTokens: 0,
+      observeInferenceTimeMs: 0,
+      totalPromptTokens: 0,
+      totalCompletionTokens: 0,
+      totalInferenceTimeMs: 0
+    };
     this.pending_logs_to_send_to_browserbase = [];
     this.is_processing_browserbase_logs = false;
     this.externalLogger = logger || defaultLogger;
@@ -6194,6 +8633,10 @@ var Stagehand = class {
       throw new Error(
         "STAGEHAND_API_URL is required when using the API. Please set it in your environment variables."
       );
+    } else if (this.usingAPI && this.llmClient.type !== "openai" && this.llmClient.type !== "anthropic") {
+      throw new Error(
+        "API mode requires an OpenAI or Anthropic LLM. Please provide a compatible model."
+      );
     }
     this.waitForCaptchaSolves = waitForCaptchaSolves;
     this.selfHeal = selfHeal;
@@ -6201,6 +8644,7 @@ var Stagehand = class {
     if (this.usingAPI) {
       this.registerSignalHandlers();
     }
+    this.logInferenceToFile = logInferenceToFile;
   }
   setActivePage(page) {
     this.stagehandPage = page;
@@ -6212,6 +8656,34 @@ var Stagehand = class {
       );
     }
     return this.stagehandPage.page;
+  }
+  get metrics() {
+    return this.stagehandMetrics;
+  }
+  updateMetrics(functionName, promptTokens, completionTokens, inferenceTimeMs) {
+    switch (functionName) {
+      case "ACT" /* ACT */:
+        this.stagehandMetrics.actPromptTokens += promptTokens;
+        this.stagehandMetrics.actCompletionTokens += completionTokens;
+        this.stagehandMetrics.actInferenceTimeMs += inferenceTimeMs;
+        break;
+      case "EXTRACT" /* EXTRACT */:
+        this.stagehandMetrics.extractPromptTokens += promptTokens;
+        this.stagehandMetrics.extractCompletionTokens += completionTokens;
+        this.stagehandMetrics.extractInferenceTimeMs += inferenceTimeMs;
+        break;
+      case "OBSERVE" /* OBSERVE */:
+        this.stagehandMetrics.observePromptTokens += promptTokens;
+        this.stagehandMetrics.observeCompletionTokens += completionTokens;
+        this.stagehandMetrics.observeInferenceTimeMs += inferenceTimeMs;
+        break;
+    }
+    this.updateTotalMetrics(promptTokens, completionTokens, inferenceTimeMs);
+  }
+  updateTotalMetrics(promptTokens, completionTokens, inferenceTimeMs) {
+    this.stagehandMetrics.totalPromptTokens += promptTokens;
+    this.stagehandMetrics.totalCompletionTokens += completionTokens;
+    this.stagehandMetrics.totalInferenceTimeMs += inferenceTimeMs;
   }
   registerSignalHandlers() {
     const cleanup = (signal) => __async(this, null, function* () {
@@ -6274,6 +8746,9 @@ var Stagehand = class {
           verbose: this.verbose,
           debugDom: this.debugDom,
           systemPrompt: this.userProvidedInstructions,
+          selfHeal: this.selfHeal,
+          waitForCaptchaSolves: this.waitForCaptchaSolves,
+          actionTimeoutMs: this.actTimeoutMs,
           browserbaseSessionCreateParams: this.browserbaseSessionCreateParams
         });
         this.browserbaseSessionID = sessionId2;
@@ -6459,12 +8934,77 @@ var Stagehand = class {
       }
       if (this.contextPath) {
         try {
-          import_fs.default.rmSync(this.contextPath, { recursive: true, force: true });
+          import_fs2.default.rmSync(this.contextPath, { recursive: true, force: true });
         } catch (e) {
           console.error("Error deleting context directory:", e);
         }
       }
     });
+  }
+  /**
+   * Create an agent instance that can be executed with different instructions
+   * @returns An agent instance with execute() method
+   */
+  agent(options) {
+    var _a;
+    if (!options || !options.provider) {
+      return {
+        execute: (instructionOrOptions) => __async(this, null, function* () {
+          return new StagehandOperatorHandler(
+            this.stagehandPage,
+            this.logger,
+            this.llmClient
+          ).execute(instructionOrOptions);
+        })
+      };
+    }
+    const agentHandler = new StagehandAgentHandler(
+      this.stagehandPage,
+      this.logger,
+      {
+        modelName: options.model,
+        clientOptions: options.options,
+        userProvidedInstructions: (_a = options.instructions) != null ? _a : `You are a helpful assistant that can use a web browser.
+      You are currently on the following page: ${this.stagehandPage.page.url()}.
+      Do not ask follow up questions, the user will trust your judgement.`,
+        agentType: options.provider
+      }
+    );
+    this.log({
+      category: "agent",
+      message: "Creating agent instance",
+      level: 1
+    });
+    return {
+      execute: (instructionOrOptions) => __async(this, null, function* () {
+        const executeOptions = typeof instructionOrOptions === "string" ? { instruction: instructionOrOptions } : instructionOrOptions;
+        if (!executeOptions.instruction) {
+          throw new Error("Instruction is required for agent execution");
+        }
+        if (this.usingAPI) {
+          if (!this.apiClient) {
+            throw new Error(
+              "API client not initialized. Ensure that you have initialized Stagehand via `await stagehand.init()`."
+            );
+          }
+          if (!options.options) {
+            options.options = {};
+          }
+          if (options.provider === "anthropic") {
+            options.options.apiKey = process.env.ANTHROPIC_API_KEY;
+          } else if (options.provider === "openai") {
+            options.options.apiKey = process.env.OPENAI_API_KEY;
+          }
+          if (!options.options.apiKey) {
+            throw new Error(
+              `API key not found for \`${options.provider}\` provider. Please set the ${options.provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"} environment variable or pass an apiKey in the options object.`
+            );
+          }
+          return yield this.apiClient.agentExecute(options, executeOptions);
+        }
+        return yield agentHandler.execute(executeOptions);
+      })
+    };
   }
 };
 // Annotate the CommonJS export names for ESM import in node:
@@ -6475,7 +9015,10 @@ var Stagehand = class {
   PlaywrightCommandException,
   PlaywrightCommandMethodNotSupportedException,
   Stagehand,
+  StagehandFunctionName,
   applyStealthScripts,
   defaultExtractSchema,
+  operatorResponseSchema,
+  operatorSummarySchema,
   pageTextSchema
 });

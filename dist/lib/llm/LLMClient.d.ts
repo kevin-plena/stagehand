@@ -8,11 +8,16 @@ export interface ChatMessage {
 }
 export type ChatMessageContent = string | (ChatMessageImageContent | ChatMessageTextContent)[];
 export interface ChatMessageImageContent {
-    type: "image_url";
-    image_url: {
+    type: string;
+    image_url?: {
         url: string;
     };
     text?: string;
+    source?: {
+        type: string;
+        media_type: string;
+        data: string;
+    };
 }
 export interface ChatMessageTextContent {
     type: string;
@@ -77,5 +82,7 @@ export declare abstract class LLMClient {
     clientOptions: ClientOptions;
     userProvidedInstructions?: string;
     constructor(modelName: AvailableModel, userProvidedInstructions?: string);
-    abstract createChatCompletion<T = LLMResponse>(options: CreateChatCompletionOptions): Promise<T>;
+    abstract createChatCompletion<T = LLMResponse & {
+        usage?: LLMResponse["usage"];
+    }>(options: CreateChatCompletionOptions): Promise<T>;
 }

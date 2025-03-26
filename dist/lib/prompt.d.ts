@@ -18,3 +18,4 @@ export declare function buildObserveUserMessage(instruction: string, domElements
  * Builds the instruction for the observeAct method to find the most relevant element for an action
  */
 export declare function buildActObservePrompt(action: string, supportedActions: string[], variables?: Record<string, string>): string;
+export declare function buildOperatorSystemPrompt(goal: string): ChatMessage;
