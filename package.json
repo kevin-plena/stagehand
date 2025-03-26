@@ -8,8 +8,11 @@
   "scripts": {
     "2048": "npm run build && tsx examples/2048.ts",
     "popup": "npm run build && tsx examples/popup.ts",
+    "cua": "npm run build && tsx examples/cua-example.ts",
+    "operator": "npm run build && tsx examples/operator-example.ts",
     "example": "npm run build && tsx examples/example.ts",
     "oracle": "npm run build && tsx --inspect examples/oracleCustomers.ts",
+    "utah": "npm run build && tsx --inspect examples/utahRegistration.ts",
     "langchain": "npm run build && tsx examples/langchain.ts",
     "debug-url": "npm run build && tsx examples/debugUrl.ts",
     "external-client": "npm run build && tsx examples/external_client.ts",
@@ -79,11 +82,11 @@
     "@playwright/test": "^1.42.1",
     "deepmerge": "^4.3.1",
     "dotenv": "^16.4.5",
-    "openai": "^4.62.1",
+    "openai": "^4.87.1",
     "zod": "^3.23.8"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.27.3",
+    "@anthropic-ai/sdk": "0.39.0",
     "@browserbasehq/sdk": "^2.0.0",
     "ws": "^8.18.0",
     "zod-to-json-schema": "^3.23.5"
@@ -100,5 +103,9 @@
   "bugs": {
     "url": "https://github.com/browserbase/stagehand/issues"
   },
-  "homepage": "https://github.com/browserbase/stagehand#readme"
+  "homepage": "https://github.com/browserbase/stagehand#readme",
+  "volta": {
+    "node": "20.19.0",
+    "npm": "10.8.2"
+  }
 }

@@ -10,15 +10,22 @@ const StagehandConfig: ConstructorParams = {
       : "LOCAL",
   apiKey: process.env.BROWSERBASE_API_KEY /* API key for authentication */,
   projectId: process.env.BROWSERBASE_PROJECT_ID /* Project identifier */,
-  debugDom: true /* Enable DOM debugging features */,
+  debugDom: false /* Enable DOM debugging features */,
   headless: false /* Run browser in headless mode */,
   logger: (message: LogLine) =>
     console.log(logLineToString(message)) /* Custom logging function */,
   domSettleTimeoutMs: 30_000 /* Timeout for DOM to settle in milliseconds */,
   browserbaseSessionCreateParams: {
     projectId: process.env.BROWSERBASE_PROJECT_ID!,
+    browserSettings: {
+      blockAds: true,
+      viewport: {
+        width: 1024,
+        height: 768,
+      },
+    },
   },
-  enableCaching: true /* Enable caching functionality */,
+  enableCaching: false /* Enable caching functionality */,
   browserbaseSessionID:
     undefined /* Session ID for resuming Browserbase sessions */,
   modelName: "gpt-4o-mini" /* Name of the model to use */,
@@ -26,6 +33,5 @@ const StagehandConfig: ConstructorParams = {
     // apiKey: process.env.OPENAI_API_KEY,
     apiKey: null,
   } /* Configuration options for the model client */,
-  actTimeoutMs: 60_000,
 };
 export default StagehandConfig;

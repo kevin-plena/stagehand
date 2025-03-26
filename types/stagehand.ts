@@ -6,18 +6,29 @@ import { LogLine } from "./log";
 import { AvailableModel, ClientOptions } from "./model";
 import { LLMClient } from "../lib/llm/LLMClient";
 import { Cookie, type Page as PlaywrightPage } from "@playwright/test";
+import { AgentProviderType, RemoteAgentClientHandler } from "./agent";
 import OpenAI from "openai";
 import { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat";
+import type Anthropic from "@anthropic-ai/sdk";
+import { APIPromise } from "@anthropic-ai/sdk/core";
 
-export type RemoteClientHandler = (clientOptions: ClientOptions, body: ChatCompletionCreateParamsNonStreaming) => Promise<OpenAI.Chat.Completions.ChatCompletion & {
-  _request_id?: string | null;
-}>;
+export type RemoteClientHandler = <T extends "openai" | "anthropic">(provider: T, providerOptions: {
+  clientOptions: ClientOptions;
+  body: T extends "openai"
+  ? ChatCompletionCreateParamsNonStreaming
+  : Anthropic.Messages.MessageCreateParamsNonStreaming;
+}) => Promise<
+  T extends "openai"
+  ? OpenAI.Chat.Completions.ChatCompletion & { _request_id?: string | null }
+  : APIPromise<Anthropic.Messages.Message>
+>;
 
 export interface ConstructorParams {
   env: "LOCAL" | "BROWSERBASE";
   apiKey?: string;
   projectId?: string;
   verbose?: 0 | 1 | 2;
+  /** @deprecated Dom Debugging is no longer supported in this version of Stagehand. */
   debugDom?: boolean;
   llmProvider?: LLMProvider;
   /** @deprecated Please use `localBrowserLaunchOptions` instead. That will override this. */
@@ -54,6 +65,7 @@ export interface ConstructorParams {
   };
   remoteClientHandler?: RemoteClientHandler;
   actTimeoutMs?: number;
+  logInferenceToFile?: boolean;
 }
 
 export interface InitOptions {
@@ -108,8 +120,8 @@ export interface ActResult {
 }
 
 export interface ExtractOptions<T extends z.AnyZodObject> {
-  instruction: string;
-  schema: T;
+  instruction?: string;
+  schema?: T;
   modelName?: AvailableModel;
   modelClientOptions?: ClientOptions;
   domSettleTimeoutMs?: number;
@@ -181,4 +193,80 @@ export interface LocalBrowserLaunchOptions {
   timezoneId?: string;
   bypassCSP?: boolean;
   cookies?: Cookie[];
+}
+
+export interface StagehandMetrics {
+  actPromptTokens: number;
+  actCompletionTokens: number;
+  actInferenceTimeMs: number;
+  extractPromptTokens: number;
+  extractCompletionTokens: number;
+  extractInferenceTimeMs: number;
+  observePromptTokens: number;
+  observeCompletionTokens: number;
+  observeInferenceTimeMs: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalInferenceTimeMs: number;
+}
+
+/**
+ * Options for executing a task with an agent
+ */
+export interface AgentExecuteParams {
+  /**
+   * The instruction to execute with the agent
+   */
+  instruction: string;
+  /**
+   * Maximum number of steps the agent can take to complete the task
+   * @default 10
+   */
+  maxSteps?: number;
+  /**
+   * Take a screenshot automatically before each agent step
+   * @default true
+   */
+  autoScreenshot?: boolean;
+  /**
+   * Wait time in milliseconds between agent actions
+   * @default 0
+   */
+  waitBetweenActions?: number;
+  /**
+   * Additional context to provide to the agent
+   */
+  context?: string;
+}
+
+/**
+ * Configuration for agent functionality
+ */
+export interface AgentConfig {
+  /**
+   * The provider to use for agent functionality
+   */
+  provider?: AgentProviderType;
+  /**
+   * The model to use for agent functionality
+   */
+  model?: string;
+  /**
+   * Custom instructions to provide to the agent
+   */
+  instructions?: string;
+  /**
+   * Additional options to pass to the agent client
+   */
+  options?: Record<string, unknown>;
+  /**
+   * Optional handler for remote agent client requests
+   */
+  remoteAgentClientHandler?: RemoteAgentClientHandler;
+}
+
+export enum StagehandFunctionName {
+  ACT = "ACT",
+  EXTRACT = "EXTRACT",
+  OBSERVE = "OBSERVE",
 }
