@@ -16,7 +16,7 @@ import fs from "fs";
 import { z } from "zod";
 import chalk from "chalk";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { getContextPath, initCdpBrowser, setPageViewportSize, extractJson, remoteAgentClientHandler, classifyEntity, validateEntity } from "./exampleUtils";
+import { getContextPath, initCdpBrowser, setPageViewportSize, extractJson, classifyEntity, validateEntity } from "./exampleUtils";
 
 
 const dataSchema = z.object({
@@ -77,6 +77,7 @@ type NoResultResponse = z.infer<typeof noResultSchema>;
 
 export async function agentExample() {
   const { context } = await initCdpBrowser();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const contextPath = getContextPath(StagehandConfig.localBrowserLaunchOptions);
 
   const page = await context.newPage();
@@ -87,12 +88,12 @@ export async function agentExample() {
 
   const stagehand = new Stagehand({
     ...StagehandConfig,
-    browserContext: {
-      context,
-      contextPath,
-      // createNewPage: true,
-      page,
-    },
+    // browserContext: {
+    //   context,
+    //   contextPath,
+    //   // createNewPage: true,
+    //   page,
+    // },
     // remoteClientHandler
   });
   await stagehand.init();
@@ -121,7 +122,7 @@ export async function agentExample() {
     options: {
       apiKey: process.env.ANTHROPIC_API_KEY,
     },
-    remoteAgentClientHandler
+    // remoteAgentClientHandler
   });
 
   const parsedSchema = JSON.stringify(zodToJsonSchema(dataSchema));
@@ -155,7 +156,7 @@ export async function agentExample() {
   const result1 = await agent.execute({
     instruction: firstInstruction,
     waitBetweenActions: 60000,
-    waitBetweenSteps: 40000,
+    // waitBetweenSteps: 40000,
     maxSteps: 12,
   });
 
@@ -170,6 +171,7 @@ export async function agentExample() {
 
 export async function agentMultiStepExample() {
   const { context } = await initCdpBrowser();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const contextPath = getContextPath(StagehandConfig.localBrowserLaunchOptions);
 
   const page = await context.newPage();
@@ -180,11 +182,11 @@ export async function agentMultiStepExample() {
 
   const stagehand = new Stagehand({
     ...StagehandConfig,
-    browserContext: {
-      context,
-      contextPath,
-      page,
-    },
+    // browserContext: {
+    //   context,
+    //   contextPath,
+    //   page,
+    // },
   });
   await stagehand.init();
 
@@ -272,7 +274,7 @@ const runEntitySearch = async (
   const result1 = await agent.execute({
     instruction: firstInstruction,
     waitBetweenActions: 60000,
-    waitBetweenSteps: 40000,
+    // waitBetweenSteps: 40000,
     maxSteps: 10,
   });
 

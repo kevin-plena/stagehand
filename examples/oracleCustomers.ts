@@ -39,18 +39,18 @@ type CustomerCards = z.infer<typeof cardSchema>['customerCards'];
 
 export async function example() {
   const { context } = await initCdpBrowser();
-  const contextPath = getContextPath(StagehandConfig.localBrowserLaunchOptions);
+  // const contextPath = getContextPath(StagehandConfig.localBrowserLaunchOptions);
 
   const page = await context.newPage();
 
   const stagehand = new Stagehand({
     ...StagehandConfig,
-    browserContext: {
-      context,
-      contextPath,
-      // createNewPage: true,
-      page,
-    },
+    // browserContext: {
+    //   context,
+    //   contextPath,
+    //   // createNewPage: true,
+    //   page,
+    // },
     // remoteClientHandler
   });
   await stagehand.init();
@@ -239,6 +239,8 @@ export async function example2() {
 
 export async function agentExample() {
   const { context } = await initCdpBrowser();
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const contextPath = getContextPath(StagehandConfig.localBrowserLaunchOptions);
 
   const page = await context.newPage();
@@ -247,12 +249,12 @@ export async function agentExample() {
 
   const stagehand = new Stagehand({
     ...StagehandConfig,
-    browserContext: {
-      context,
-      contextPath,
-      // createNewPage: true,
-      page,
-    },
+    // browserContext: {
+    //   context,
+    //   contextPath,
+    //   // createNewPage: true,
+    //   page,
+    // },
     // remoteClientHandler
   });
   await stagehand.init();
@@ -323,7 +325,7 @@ export async function agentExample() {
   const result1 = await agent.execute({
     instruction: firstInstruction,
     waitBetweenActions: 60000,
-    waitBetweenSteps: 40000,
+    // waitBetweenSteps: 40000,
     maxSteps: 11,
   });
 
@@ -355,7 +357,7 @@ export async function agentExample() {
   const result2 = await agent.execute({
     instruction: instruction2,
     waitBetweenActions: 60000,
-    waitBetweenSteps: 40000,
+    // waitBetweenSteps: 40000,
     maxSteps: 11,
   });
 
