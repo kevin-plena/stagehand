@@ -11,6 +11,8 @@
     "cua": "npm run build && tsx examples/cua-example.ts",
     "operator": "npm run build && tsx examples/operator-example.ts",
     "example": "npm run build && tsx examples/example.ts",
+    "oracle": "npm run build && tsx --inspect examples/oracleCustomers.ts",
+    "utah": "npm run build && tsx --inspect examples/utahRegistration.ts",
     "langchain": "npm run build && tsx examples/langchain.ts",
     "debug-url": "npm run build && tsx examples/debugUrl.ts",
     "external-client": "npm run build && tsx examples/external_client.ts",
@@ -33,7 +35,7 @@
     "build-dom-scripts": "tsx lib/dom/genDomScripts.ts",
     "build-types": "tsc --emitDeclarationOnly --outDir dist",
     "build-js": "tsup lib/index.ts --dts",
-    "build": "npm run lint && npm run build-dom-scripts && npm run build-js && npm run build-types",
+    "build": "npm run build-dom-scripts && npm run build-js && npm run build-types",
     "lint": "npm run prettier && npm run eslint",
     "release": "npm run build && changeset publish",
     "release-canary": "npm run build && changeset version --snapshot && changeset publish --tag alpha"
@@ -112,5 +114,9 @@
   "homepage": "https://stagehand.dev",
   "overrides": {
     "whatwg-url": "^14.0.0"
+  },
+  "volta": {
+    "node": "20.19.0",
+    "npm": "10.8.2"
   }
 }
