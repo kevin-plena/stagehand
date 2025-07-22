@@ -9,6 +9,9 @@ import { EnhancedContext } from "../types/context";
 import { LogLine } from "../types/log";
 import { AvailableModel } from "../types/model";
 import { BrowserContext, Page } from "../types/page";
+import type {
+  Page as PlaywrightPage,
+} from "@playwright/test";
 import {
   ConstructorParams,
   InitResult,
@@ -358,8 +361,8 @@ async function applyStealthScripts(context: BrowserContext) {
     window.navigator.permissions.query = (parameters) =>
       parameters.name === "notifications"
         ? Promise.resolve({
-            state: Notification.permission,
-          } as PermissionStatus)
+          state: Notification.permission,
+        } as PermissionStatus)
         : originalQuery(parameters);
   });
 }
@@ -428,6 +431,13 @@ export class Stagehand {
   }
   protected setActivePage(page: StagehandPage): void {
     this.stagehandPage = page;
+  }
+
+  public async setStagehandPage(page: PlaywrightPage) {
+    if (!this.stagehandContext) {
+      throw new StagehandNotInitializedError("page");
+    }
+    this.stagehandPage = await this.stagehandContext.getStagehandPage(page);
   }
 
   public get page(): Page {
@@ -534,8 +544,8 @@ export class Stagehand {
       disablePino,
       experimental = false,
     }: ConstructorParams = {
-      env: "BROWSERBASE",
-    },
+        env: "BROWSERBASE",
+      },
   ) {
     this.externalLogger =
       logger || ((logLine: LogLine) => defaultLogger(logLine, disablePino));
@@ -595,13 +605,13 @@ export class Stagehand {
         modelApiKey =
           LLMProvider.getModelProvider(this.modelName) === "openai"
             ? process.env.OPENAI_API_KEY ||
-              this.llmClient?.clientOptions?.apiKey
+            this.llmClient?.clientOptions?.apiKey
             : LLMProvider.getModelProvider(this.modelName) === "anthropic"
               ? process.env.ANTHROPIC_API_KEY ||
-                this.llmClient?.clientOptions?.apiKey
+              this.llmClient?.clientOptions?.apiKey
               : LLMProvider.getModelProvider(this.modelName) === "google"
                 ? process.env.GOOGLE_API_KEY ||
-                  this.llmClient?.clientOptions?.apiKey
+                this.llmClient?.clientOptions?.apiKey
                 : undefined;
       }
       this.modelClientOptions = {
@@ -723,7 +733,7 @@ export class Stagehand {
     return this.env === "BROWSERBASE"
       ? "downloads"
       : (this.localBrowserLaunchOptions?.downloadsPath ??
-          path.resolve(process.cwd(), "downloads"));
+        path.resolve(process.cwd(), "downloads"));
   }
 
   public get context(): EnhancedContext {
@@ -737,8 +747,8 @@ export class Stagehand {
     if (isRunningInBun()) {
       throw new StagehandError(
         "Playwright does not currently support the Bun runtime environment. " +
-          "Please use Node.js instead. For more information, see: " +
-          "https://github.com/microsoft/playwright/issues/27139",
+        "Please use Node.js instead. For more information, see: " +
+        "https://github.com/microsoft/playwright/issues/27139",
       );
     }
 
