@@ -17,6 +17,8 @@ import { z } from "zod";
 import chalk from "chalk";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { getContextPath, initCdpBrowser, setPageViewportSize } from "./exampleUtils";
+import { CustomOpenAIClient } from "./external_clients/customOpenAI";
+import { PlenaOpenAIClient } from "./external_clients/plenaOpenAi";
 
 
 const cardSchema = z.object({
@@ -237,6 +239,100 @@ export async function example2() {
   // await page.goto("https://www.example.com/", { waitUntil: "load" });
 }
 
+export async function example2CustomClient() {
+  const { context } = await initCdpBrowser();
+  const contextPath = getContextPath(StagehandConfig.localBrowserLaunchOptions);
+
+  const page = await context.newPage();
+
+  page.context().pages()
+
+  console.time('example2');
+
+  const stagehand = new Stagehand({
+    ...StagehandConfig,
+    modelName: 'gpt-4.1-mini',
+    localBrowserLaunchOptions: {
+      cdpUrl: 'http://localhost:9222'
+    },
+    llmClient: new CustomOpenAIClient({
+      modelName: 'gpt-4.1-mini',
+      client: new PlenaOpenAIClient({
+        modelName: 'gpt-4.1-mini'
+      })
+    })
+  });
+  await stagehand.init();
+
+  await stagehand.setStagehandPage(page);
+
+  const shPage = stagehand.page;
+
+  setPageViewportSize(shPage);
+
+  // https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp
+  await shPage.goto(
+    // "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp&region=rgn-n",
+    "https://www.oracle.com/customers/?product=mpd-cld-apps:fusion-suite:hcm~mpd-cld-apps:fusion-suite:erp&region=rgn-j",
+    { waitUntil: "load" },
+  );
+  await shPage.waitForTimeout(1000);
+
+  const MAX_ITERATIONS = 100;
+  let currentIter = 0;
+
+  // here we will simply click the See more button until all of the cards are loaded
+  while (currentIter < MAX_ITERATIONS) {
+    try {
+      const [btnActionRes] = await shPage.observe({
+        instruction: `Click the link at the bottom of the page labeled "See more", if it exists, to load more customers.`
+      });
+      await shPage.waitForTimeout(1000);
+
+      if (!btnActionRes) break;
+
+      await shPage.act(btnActionRes);
+      await shPage.waitForTimeout(1000);
+      currentIter++;
+
+      const { hasSeeMoreButton } = await shPage.extract({
+        instruction: 'Check if the "See more" link exists at the bottom of the page, scrolling down as needed.',
+        schema: z.object({
+          hasSeeMoreButton: z.boolean().describe('true if the "See more" button at the bottom of the page. false if not.'),
+        }),
+      });
+
+      if (!hasSeeMoreButton) {
+        break;
+      }
+    } catch (error) {
+      console.log('Failed to click see more button.', error.message);
+    }
+  }
+
+  await shPage.waitForTimeout(1000);
+
+  const { customerCards } = await shPage.extract({
+    instruction:
+      `Extract the information from all of the customer cards on the page, scrolling the page as necessary. 
+      You know you reached the bottom by having a visible site footer and you know you reached the top by a visible filters above the customer cards.`,
+    schema: cardSchema,
+    useTextExtract: false, // Set this to true if you want to extract longer paragraphs
+  });
+
+  console.timeEnd('example2');
+
+  console.log(`Extracted ${customerCards.length} customers total.`);
+
+  fs.writeFileSync("./tmp/customerCards.json", JSON.stringify(customerCards, null, 2));
+  fs.writeFileSync("./tmp/customerCardsMetrics.json", JSON.stringify(stagehand.metrics, null, 2));
+
+  await shPage.waitForTimeout(5000);
+
+  // console.log('Navigating on original page...');
+  // await page.goto("https://www.example.com/", { waitUntil: "load" });
+}
+
 export async function agentExample() {
   const { context } = await initCdpBrowser();
 
@@ -373,6 +469,7 @@ export async function agentExample() {
 
 (async () => {
   // await example();
-  await example2();
+  // await example2();
+  await example2CustomClient();
   // await agentExample();
 })();
