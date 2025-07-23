@@ -24,7 +24,6 @@
     "build-js": "tsup lib/index.ts --dts",
     "build": "npm run gen-version && npm run build-dom-scripts && npm run build-js && npm run build-types",
     "gen-version": "tsx scripts/gen-version.ts",
-    "prepare": "npm run build",
     "lint": "npm run prettier:fix && npm run eslint",
     "release": "npm run build && changeset publish",
     "release-canary": "npm run build && changeset version --snapshot && changeset publish --tag alpha"
