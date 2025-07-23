@@ -6,28 +6,28 @@
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "example": "pnpm --filter @browserbasehq/stagehand-examples run start",
+    "example": "npm --filter @browserbasehq/stagehand-examples run start",
     "format": "prettier --write .",
     "prettier": "prettier --check .",
     "prettier:fix": "prettier --write .",
     "eslint": "eslint .",
     "cache:clear": "rm -rf .cache",
-    "docs": "pnpm --filter @browserbasehq/stagehand-docs run dev",
+    "docs": "npm --filter @browserbasehq/stagehand-docs run dev",
     "evals": "tsx scripts/run-evals.ts",
-    "evals:help": "pnpm run evals -- help",
-    "evals:man": "pnpm run evals -- man",
-    "e2e": "pnpm run build && cd evals/deterministic && playwright test --config=e2e.playwright.config.ts",
-    "e2e:bb": "pnpm run build && cd evals/deterministic && playwright test --config=bb.playwright.config.ts",
-    "e2e:local": "pnpm run build && cd evals/deterministic && playwright test --config=local.playwright.config.ts",
+    "evals:help": "npm run evals -- help",
+    "evals:man": "npm run evals -- man",
+    "e2e": "npm run build && cd evals/deterministic && playwright test --config=e2e.playwright.config.ts",
+    "e2e:bb": "npm run build && cd evals/deterministic && playwright test --config=bb.playwright.config.ts",
+    "e2e:local": "npm run build && cd evals/deterministic && playwright test --config=local.playwright.config.ts",
     "build-dom-scripts": "tsx lib/dom/genDomScripts.ts",
     "build-types": "tsc --emitDeclarationOnly --outDir dist",
     "build-js": "tsup lib/index.ts --dts",
-    "build": "pnpm run gen-version && pnpm run build-dom-scripts && pnpm run build-js && pnpm run build-types",
+    "build": "npm run gen-version && npm run build-dom-scripts && npm run build-js && npm run build-types",
     "gen-version": "tsx scripts/gen-version.ts",
-    "prepare": "pnpm run build",
-    "lint": "pnpm run prettier:fix && pnpm run eslint",
-    "release": "pnpm run build && changeset publish",
-    "release-canary": "pnpm run build && changeset version --snapshot && changeset publish --tag alpha"
+    "prepare": "npm run build",
+    "lint": "npm run prettier:fix && npm run eslint",
+    "release": "npm run build && changeset publish",
+    "release-canary": "npm run build && changeset version --snapshot && changeset publish --tag alpha"
   },
   "files": [
     "dist/**"
@@ -114,7 +114,6 @@
   "overrides": {
     "whatwg-url": "^14.0.0"
   },
-  "packageManager": "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299921a89f976381ee107d41f12cfa4b66681ca9c718f0668fa0831ed4c6d8ba56c",
   "volta": {
     "node": "20.19.0"
   }
