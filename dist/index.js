@@ -80,9 +80,9 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// node_modules/.pnpm/secure-json-parse@2.7.0/node_modules/secure-json-parse/index.js
+// node_modules/secure-json-parse/index.js
 var require_secure_json_parse = __commonJS({
-  "node_modules/.pnpm/secure-json-parse@2.7.0/node_modules/secure-json-parse/index.js"(exports2, module2) {
+  "node_modules/secure-json-parse/index.js"(exports2, module2) {
     "use strict";
     var hasBuffer = typeof Buffer !== "undefined";
     var suspectProtoRx = /"(?:_|\\u005[Ff])(?:_|\\u005[Ff])(?:p|\\u0070)(?:r|\\u0072)(?:o|\\u006[Ff])(?:t|\\u0074)(?:o|\\u006[Ff])(?:_|\\u005[Ff])(?:_|\\u005[Ff])"\s*:/;
@@ -184,9 +184,9 @@ var require_secure_json_parse = __commonJS({
   }
 });
 
-// node_modules/.pnpm/partial-json@0.1.7/node_modules/partial-json/dist/options.js
+// node_modules/partial-json/dist/options.js
 var require_options = __commonJS({
-  "node_modules/.pnpm/partial-json@0.1.7/node_modules/partial-json/dist/options.js"(exports2) {
+  "node_modules/partial-json/dist/options.js"(exports2) {
     "use strict";
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.Allow = exports2.ALL = exports2.COLLECTION = exports2.ATOM = exports2.SPECIAL = exports2.INF = exports2._INFINITY = exports2.INFINITY = exports2.NAN = exports2.BOOL = exports2.NULL = exports2.OBJ = exports2.ARR = exports2.NUM = exports2.STR = void 0;
@@ -209,9 +209,9 @@ var require_options = __commonJS({
   }
 });
 
-// node_modules/.pnpm/partial-json@0.1.7/node_modules/partial-json/dist/index.js
+// node_modules/partial-json/dist/index.js
 var require_dist = __commonJS({
-  "node_modules/.pnpm/partial-json@0.1.7/node_modules/partial-json/dist/index.js"(exports2) {
+  "node_modules/partial-json/dist/index.js"(exports2) {
     "use strict";
     var __createBinding = exports2 && exports2.__createBinding || (Object.create ? function(o, m, k, k2) {
       if (k2 === void 0) k2 = k;
@@ -7101,7 +7101,7 @@ ${parsedSchema}
   }
 };
 
-// node_modules/.pnpm/@ai-sdk+provider@1.1.3/node_modules/@ai-sdk/provider/dist/index.mjs
+// node_modules/@ai-sdk/provider/dist/index.mjs
 var marker = "vercel.ai.error";
 var symbol = Symbol.for(marker);
 var _a;
@@ -7410,7 +7410,7 @@ var UnsupportedFunctionalityError = class extends AISDKError {
 };
 _a14 = symbol14;
 
-// node_modules/.pnpm/nanoid@3.3.11/node_modules/nanoid/non-secure/index.js
+// node_modules/nanoid/non-secure/index.js
 var customAlphabet = (alphabet, defaultSize = 21) => {
   return (size = defaultSize) => {
     let id = "";
@@ -7422,7 +7422,7 @@ var customAlphabet = (alphabet, defaultSize = 21) => {
   };
 };
 
-// node_modules/.pnpm/@ai-sdk+provider-utils@2.2.7_zod@3.24.3/node_modules/@ai-sdk/provider-utils/dist/index.mjs
+// node_modules/@ai-sdk/provider-utils/dist/index.mjs
 var import_secure_json_parse = __toESM(require_secure_json_parse(), 1);
 function combineHeaders(...headers) {
   return headers.reduce(
@@ -7511,7 +7511,7 @@ function splitLines(buffer, chunk) {
     } else if (char === "\r") {
       lines.push(currentLine);
       currentLine = "";
-      if (chunk[i + 1] === "\n") {
+      if (chunk[i] === "\n") {
         i++;
       }
     } else {
@@ -8017,7 +8017,7 @@ function withoutTrailingSlash(url) {
   return url == null ? void 0 : url.replace(/\/$/, "");
 }
 
-// node_modules/.pnpm/@ai-sdk+openai@1.3.21_zod@3.24.3/node_modules/@ai-sdk/openai/dist/index.mjs
+// node_modules/@ai-sdk/openai/dist/index.mjs
 var import_zod6 = require("zod");
 var import_zod7 = require("zod");
 var import_zod8 = require("zod");
@@ -10132,15 +10132,16 @@ var OpenAIResponsesLanguageModel = class {
     return __async(this, null, function* () {
       var _a15, _b, _c, _d, _e, _f, _g;
       const { args: body, warnings } = this.getArgs(options);
+      const url = this.config.url({
+        path: "/responses",
+        modelId: this.modelId
+      });
       const {
         responseHeaders,
         value: response,
         rawValue: rawResponse
       } = yield postJsonToApi({
-        url: this.config.url({
-          path: "/responses",
-          modelId: this.modelId
-        }),
+        url,
         headers: combineHeaders(this.config.headers(), options.headers),
         body,
         failedResponseHandler: openaiFailedResponseHandler,
@@ -10148,6 +10149,10 @@ var OpenAIResponsesLanguageModel = class {
           import_zod12.z.object({
             id: import_zod12.z.string(),
             created_at: import_zod12.z.number(),
+            error: import_zod12.z.object({
+              message: import_zod12.z.string(),
+              code: import_zod12.z.string()
+            }).nullish(),
             model: import_zod12.z.string(),
             output: import_zod12.z.array(
               import_zod12.z.discriminatedUnion("type", [
@@ -10200,6 +10205,17 @@ var OpenAIResponsesLanguageModel = class {
         abortSignal: options.abortSignal,
         fetch: this.config.fetch
       });
+      if (response.error) {
+        throw new APICallError({
+          message: response.error.message,
+          url,
+          requestBodyValues: body,
+          statusCode: 400,
+          responseHeaders,
+          responseBody: rawResponse,
+          isRetryable: false
+        });
+      }
       const outputTextElements = response.output.filter((output) => output.type === "message").flatMap((output) => output.content).filter((content) => content.type === "output_text");
       const toolCalls = response.output.filter((output) => output.type === "function_call").map((output) => ({
         toolCallType: "function",
@@ -10372,6 +10388,8 @@ var OpenAIResponsesLanguageModel = class {
                     title: value.annotation.title
                   }
                 });
+              } else if (isErrorChunk(value)) {
+                controller.enqueue({ type: "error", error: value });
               }
             },
             flush(controller) {
@@ -10481,6 +10499,13 @@ var responseReasoningSummaryTextDeltaSchema = import_zod12.z.object({
   summary_index: import_zod12.z.number(),
   delta: import_zod12.z.string()
 });
+var errorChunkSchema = import_zod12.z.object({
+  type: import_zod12.z.literal("error"),
+  code: import_zod12.z.string(),
+  message: import_zod12.z.string(),
+  param: import_zod12.z.string().nullish(),
+  sequence_number: import_zod12.z.number()
+});
 var openaiResponsesChunkSchema = import_zod12.z.union([
   textDeltaChunkSchema,
   responseFinishedChunkSchema,
@@ -10490,6 +10515,7 @@ var openaiResponsesChunkSchema = import_zod12.z.union([
   responseOutputItemAddedSchema,
   responseAnnotationAddedSchema,
   responseReasoningSummaryTextDeltaSchema,
+  errorChunkSchema,
   import_zod12.z.object({ type: import_zod12.z.string() }).passthrough()
   // fallback for unknown chunks
 ]);
@@ -10516,6 +10542,9 @@ function isResponseAnnotationAddedChunk(chunk) {
 }
 function isResponseReasoningSummaryTextDeltaChunk(chunk) {
   return chunk.type === "response.reasoning_summary_text.delta";
+}
+function isErrorChunk(chunk) {
+  return chunk.type === "error";
 }
 function getResponsesModelConfig(modelId) {
   if (modelId.startsWith("o")) {
@@ -10762,7 +10791,7 @@ var openai = createOpenAI({
   // strict for OpenAI API
 });
 
-// node_modules/.pnpm/@ai-sdk+anthropic@1.2.10_zod@3.24.3/node_modules/@ai-sdk/anthropic/dist/index.mjs
+// node_modules/@ai-sdk/anthropic/dist/index.mjs
 var import_zod15 = require("zod");
 var import_zod16 = require("zod");
 var import_zod17 = require("zod");
@@ -11912,7 +11941,7 @@ function createAnthropic(options = {}) {
 }
 var anthropic = createAnthropic();
 
-// node_modules/.pnpm/@ai-sdk+google@1.2.14_zod@3.24.3/node_modules/@ai-sdk/google/dist/index.mjs
+// node_modules/@ai-sdk/google/dist/index.mjs
 var import_zod18 = require("zod");
 var import_zod19 = require("zod");
 var import_zod20 = require("zod");
@@ -12009,7 +12038,7 @@ function convertJSONSchemaToOpenAPISchema(jsonSchema) {
   return result;
 }
 function isEmptyObjectSchema(jsonSchema) {
-  return jsonSchema != null && typeof jsonSchema === "object" && jsonSchema.type === "object" && (jsonSchema.properties == null || Object.keys(jsonSchema.properties).length === 0);
+  return jsonSchema != null && typeof jsonSchema === "object" && jsonSchema.type === "object" && (jsonSchema.properties == null || Object.keys(jsonSchema.properties).length === 0) && !jsonSchema.additionalProperties;
 }
 function convertToGoogleGenerativeAIMessages(prompt) {
   var _a15, _b;
@@ -12283,7 +12312,7 @@ var GoogleGenerativeAILanguageModel = class {
       seed,
       providerMetadata
     }) {
-      var _a15, _b;
+      var _a15, _b, _c;
       const type = mode.type;
       const warnings = [];
       const googleOptions = parseProviderOptions({
@@ -12291,6 +12320,12 @@ var GoogleGenerativeAILanguageModel = class {
         providerOptions: providerMetadata,
         schema: googleGenerativeAIProviderOptionsSchema
       });
+      if (((_a15 = googleOptions == null ? void 0 : googleOptions.thinkingConfig) == null ? void 0 : _a15.includeThoughts) === true && !this.config.provider.startsWith("google.vertex.")) {
+        warnings.push({
+          type: "other",
+          message: `The 'includeThoughts' option is only supported with the Google Vertex provider and might not be supported or could behave unexpectedly with the current Google provider (${this.config.provider}).`
+        });
+      }
       const generationConfig = __spreadProps(__spreadValues({
         // standardized settings:
         maxOutputTokens: maxTokens,
@@ -12318,7 +12353,7 @@ var GoogleGenerativeAILanguageModel = class {
         case "regular": {
           const { tools, toolConfig, toolWarnings } = prepareTools3(
             mode,
-            (_a15 = this.settings.useSearchGrounding) != null ? _a15 : false,
+            (_b = this.settings.useSearchGrounding) != null ? _b : false,
             this.settings.dynamicRetrievalConfig,
             this.modelId
           );
@@ -12357,11 +12392,12 @@ var GoogleGenerativeAILanguageModel = class {
             args: {
               generationConfig,
               contents,
+              systemInstruction,
               tools: {
                 functionDeclarations: [
                   {
                     name: mode.tool.name,
-                    description: (_b = mode.tool.description) != null ? _b : "",
+                    description: (_c = mode.tool.description) != null ? _c : "",
                     parameters: convertJSONSchemaToOpenAPISchema(
                       mode.tool.parameters
                     )
@@ -12414,11 +12450,13 @@ var GoogleGenerativeAILanguageModel = class {
       const parts = candidate.content == null || typeof candidate.content !== "object" || !("parts" in candidate.content) ? [] : candidate.content.parts;
       const toolCalls = getToolCallsFromParts({
         parts,
+        // Use candidateParts
         generateId: this.config.generateId
       });
       const usageMetadata = response.usageMetadata;
       return {
         text: getTextFromParts(parts),
+        reasoning: getReasoningDetailsFromParts(parts),
         files: (_a15 = getInlineDataParts(parts)) == null ? void 0 : _a15.map((part) => ({
           data: part.inlineData.data,
           mimeType: part.inlineData.mimeType
@@ -12507,6 +12545,17 @@ var GoogleGenerativeAILanguageModel = class {
                     textDelta: deltaText
                   });
                 }
+                const reasoningDeltaText = getReasoningDetailsFromParts(
+                  content.parts
+                );
+                if (reasoningDeltaText != null) {
+                  for (const part of reasoningDeltaText) {
+                    controller.enqueue({
+                      type: "reasoning",
+                      textDelta: part.text
+                    });
+                  }
+                }
                 const inlineDataParts = getInlineDataParts(content.parts);
                 if (inlineDataParts != null) {
                   for (const part of inlineDataParts) {
@@ -12594,8 +12643,16 @@ function getToolCallsFromParts({
   }));
 }
 function getTextFromParts(parts) {
-  const textParts = parts == null ? void 0 : parts.filter((part) => "text" in part);
+  const textParts = parts == null ? void 0 : parts.filter(
+    (part) => "text" in part && part.thought !== true
+  );
   return textParts == null || textParts.length === 0 ? void 0 : textParts.map((part) => part.text).join("");
+}
+function getReasoningDetailsFromParts(parts) {
+  const reasoningParts = parts == null ? void 0 : parts.filter(
+    (part) => "text" in part && part.thought === true && part.text != null
+  );
+  return reasoningParts == null || reasoningParts.length === 0 ? void 0 : reasoningParts.map((part) => ({ type: "text", text: part.text }));
 }
 function getInlineDataParts(parts) {
   return parts == null ? void 0 : parts.filter(
@@ -12617,12 +12674,9 @@ function extractSources({
   }));
 }
 var contentSchema = import_zod18.z.object({
-  role: import_zod18.z.string(),
   parts: import_zod18.z.array(
     import_zod18.z.union([
-      import_zod18.z.object({
-        text: import_zod18.z.string()
-      }),
+      // note: order matters since text can be fully empty
       import_zod18.z.object({
         functionCall: import_zod18.z.object({
           name: import_zod18.z.string(),
@@ -12634,6 +12688,10 @@ var contentSchema = import_zod18.z.object({
           mimeType: import_zod18.z.string(),
           data: import_zod18.z.string()
         })
+      }),
+      import_zod18.z.object({
+        text: import_zod18.z.string().nullish(),
+        thought: import_zod18.z.boolean().nullish()
       })
     ])
   ).nullish()
@@ -12669,8 +12727,8 @@ var groundingMetadataSchema = import_zod18.z.object({
   ]).nullish()
 });
 var safetyRatingSchema = import_zod18.z.object({
-  category: import_zod18.z.string(),
-  probability: import_zod18.z.string(),
+  category: import_zod18.z.string().nullish(),
+  probability: import_zod18.z.string().nullish(),
   probabilityScore: import_zod18.z.number().nullish(),
   severity: import_zod18.z.string().nullish(),
   severityScore: import_zod18.z.number().nullish(),
@@ -12709,7 +12767,8 @@ var chunkSchema = import_zod18.z.object({
 var googleGenerativeAIProviderOptionsSchema = import_zod18.z.object({
   responseModalities: import_zod18.z.array(import_zod18.z.enum(["TEXT", "IMAGE"])).nullish(),
   thinkingConfig: import_zod18.z.object({
-    thinkingBudget: import_zod18.z.number().nullish()
+    thinkingBudget: import_zod18.z.number().nullish(),
+    includeThoughts: import_zod18.z.boolean().nullish()
   }).nullish()
 });
 var GoogleGenerativeAIEmbeddingModel = class {
@@ -12823,7 +12882,7 @@ function createGoogleGenerativeAI(options = {}) {
 }
 var google = createGoogleGenerativeAI();
 
-// node_modules/.pnpm/@ai-sdk+openai-compatible@0.2.13_zod@3.24.3/node_modules/@ai-sdk/openai-compatible/dist/index.mjs
+// node_modules/@ai-sdk/openai-compatible/dist/index.mjs
 var import_zod21 = require("zod");
 var import_zod22 = require("zod");
 var import_zod23 = require("zod");
@@ -13556,7 +13615,7 @@ var createOpenAICompatibleChatChunkSchema = (errorSchema) => import_zod21.z.unio
           reasoning_content: import_zod21.z.string().nullish(),
           tool_calls: import_zod21.z.array(
             import_zod21.z.object({
-              index: import_zod21.z.number(),
+              index: import_zod21.z.number().optional(),
               id: import_zod21.z.string().nullish(),
               type: import_zod21.z.literal("function").nullish(),
               function: import_zod21.z.object({
@@ -14062,7 +14121,7 @@ var openaiCompatibleImageResponseSchema = import_zod25.z.object({
   data: import_zod25.z.array(import_zod25.z.object({ b64_json: import_zod25.z.string() }))
 });
 
-// node_modules/.pnpm/@ai-sdk+xai@1.2.15_zod@3.24.3/node_modules/@ai-sdk/xai/dist/index.mjs
+// node_modules/@ai-sdk/xai/dist/index.mjs
 var import_zod26 = require("zod");
 function supportsStructuredOutputs(modelId) {
   return [
@@ -14136,7 +14195,7 @@ function createXai(options = {}) {
 }
 var xai = createXai();
 
-// node_modules/.pnpm/@ai-sdk+openai@1.3.21_zod@3.24.3/node_modules/@ai-sdk/openai/internal/dist/index.mjs
+// node_modules/@ai-sdk/openai/internal/dist/index.mjs
 var import_zod27 = require("zod");
 var import_zod28 = require("zod");
 var import_zod29 = require("zod");
@@ -16254,15 +16313,16 @@ var OpenAIResponsesLanguageModel2 = class {
     return __async(this, null, function* () {
       var _a15, _b, _c, _d, _e, _f, _g;
       const { args: body, warnings } = this.getArgs(options);
+      const url = this.config.url({
+        path: "/responses",
+        modelId: this.modelId
+      });
       const {
         responseHeaders,
         value: response,
         rawValue: rawResponse
       } = yield postJsonToApi({
-        url: this.config.url({
-          path: "/responses",
-          modelId: this.modelId
-        }),
+        url,
         headers: combineHeaders(this.config.headers(), options.headers),
         body,
         failedResponseHandler: openaiFailedResponseHandler2,
@@ -16270,6 +16330,10 @@ var OpenAIResponsesLanguageModel2 = class {
           import_zod34.z.object({
             id: import_zod34.z.string(),
             created_at: import_zod34.z.number(),
+            error: import_zod34.z.object({
+              message: import_zod34.z.string(),
+              code: import_zod34.z.string()
+            }).nullish(),
             model: import_zod34.z.string(),
             output: import_zod34.z.array(
               import_zod34.z.discriminatedUnion("type", [
@@ -16322,6 +16386,17 @@ var OpenAIResponsesLanguageModel2 = class {
         abortSignal: options.abortSignal,
         fetch: this.config.fetch
       });
+      if (response.error) {
+        throw new APICallError({
+          message: response.error.message,
+          url,
+          requestBodyValues: body,
+          statusCode: 400,
+          responseHeaders,
+          responseBody: rawResponse,
+          isRetryable: false
+        });
+      }
       const outputTextElements = response.output.filter((output) => output.type === "message").flatMap((output) => output.content).filter((content) => content.type === "output_text");
       const toolCalls = response.output.filter((output) => output.type === "function_call").map((output) => ({
         toolCallType: "function",
@@ -16494,6 +16569,8 @@ var OpenAIResponsesLanguageModel2 = class {
                     title: value.annotation.title
                   }
                 });
+              } else if (isErrorChunk2(value)) {
+                controller.enqueue({ type: "error", error: value });
               }
             },
             flush(controller) {
@@ -16603,6 +16680,13 @@ var responseReasoningSummaryTextDeltaSchema2 = import_zod34.z.object({
   summary_index: import_zod34.z.number(),
   delta: import_zod34.z.string()
 });
+var errorChunkSchema2 = import_zod34.z.object({
+  type: import_zod34.z.literal("error"),
+  code: import_zod34.z.string(),
+  message: import_zod34.z.string(),
+  param: import_zod34.z.string().nullish(),
+  sequence_number: import_zod34.z.number()
+});
 var openaiResponsesChunkSchema2 = import_zod34.z.union([
   textDeltaChunkSchema2,
   responseFinishedChunkSchema2,
@@ -16612,6 +16696,7 @@ var openaiResponsesChunkSchema2 = import_zod34.z.union([
   responseOutputItemAddedSchema2,
   responseAnnotationAddedSchema2,
   responseReasoningSummaryTextDeltaSchema2,
+  errorChunkSchema2,
   import_zod34.z.object({ type: import_zod34.z.string() }).passthrough()
   // fallback for unknown chunks
 ]);
@@ -16638,6 +16723,9 @@ function isResponseAnnotationAddedChunk2(chunk) {
 }
 function isResponseReasoningSummaryTextDeltaChunk2(chunk) {
   return chunk.type === "response.reasoning_summary_text.delta";
+}
+function isErrorChunk2(chunk) {
+  return chunk.type === "error";
 }
 function getResponsesModelConfig2(modelId) {
   if (modelId.startsWith("o")) {
@@ -16672,7 +16760,7 @@ var openaiResponsesProviderOptionsSchema2 = import_zod34.z.object({
   reasoningSummary: import_zod34.z.string().nullish()
 });
 
-// node_modules/.pnpm/@ai-sdk+azure@1.3.22_zod@3.24.3/node_modules/@ai-sdk/azure/dist/index.mjs
+// node_modules/@ai-sdk/azure/dist/index.mjs
 function createAzure(options = {}) {
   var _a15;
   const getHeaders = () => __spreadValues({
@@ -16755,7 +16843,7 @@ function createAzure(options = {}) {
 }
 var azure = createAzure();
 
-// node_modules/.pnpm/@ai-sdk+groq@1.2.8_zod@3.24.3/node_modules/@ai-sdk/groq/dist/index.mjs
+// node_modules/@ai-sdk/groq/dist/index.mjs
 var import_zod35 = require("zod");
 var import_zod36 = require("zod");
 var import_zod37 = require("zod");
@@ -17514,7 +17602,7 @@ function createGroq(options = {}) {
 }
 var groq = createGroq();
 
-// node_modules/.pnpm/@ai-sdk+cerebras@0.2.13_zod@3.24.3/node_modules/@ai-sdk/cerebras/dist/index.mjs
+// node_modules/@ai-sdk/cerebras/dist/index.mjs
 var import_zod38 = require("zod");
 var cerebrasErrorSchema = import_zod38.z.object({
   message: import_zod38.z.string(),
@@ -17558,7 +17646,7 @@ function createCerebras(options = {}) {
 }
 var cerebras = createCerebras();
 
-// node_modules/.pnpm/@ai-sdk+togetherai@0.2.13_zod@3.24.3/node_modules/@ai-sdk/togetherai/dist/index.mjs
+// node_modules/@ai-sdk/togetherai/dist/index.mjs
 var import_zod39 = require("zod");
 var TogetherAIImageModel = class {
   constructor(modelId, settings, config) {
@@ -17690,7 +17778,7 @@ function createTogetherAI(options = {}) {
 }
 var togetherai = createTogetherAI();
 
-// node_modules/.pnpm/@ai-sdk+mistral@1.2.7_zod@3.24.3/node_modules/@ai-sdk/mistral/dist/index.mjs
+// node_modules/@ai-sdk/mistral/dist/index.mjs
 var import_zod40 = require("zod");
 var import_zod41 = require("zod");
 var import_zod42 = require("zod");
@@ -18339,7 +18427,7 @@ function createMistral(options = {}) {
 }
 var mistral = createMistral();
 
-// node_modules/.pnpm/@ai-sdk+deepseek@0.2.13_zod@3.24.3/node_modules/@ai-sdk/deepseek/dist/index.mjs
+// node_modules/@ai-sdk/deepseek/dist/index.mjs
 var import_zod43 = require("zod");
 var buildDeepseekMetadata = (usage) => {
   var _a15, _b;
@@ -18422,7 +18510,7 @@ function createDeepSeek(options = {}) {
 }
 var deepseek = createDeepSeek();
 
-// node_modules/.pnpm/@ai-sdk+perplexity@1.1.8_zod@3.24.3/node_modules/@ai-sdk/perplexity/dist/index.mjs
+// node_modules/@ai-sdk/perplexity/dist/index.mjs
 var import_zod44 = require("zod");
 function convertToPerplexityMessages(prompt) {
   const messages = [];
@@ -18848,7 +18936,7 @@ function createPerplexity(options = {}) {
 }
 var perplexity = createPerplexity();
 
-// node_modules/.pnpm/ollama-ai-provider@1.2.0_zod@3.24.3/node_modules/ollama-ai-provider/dist/index.mjs
+// node_modules/ollama-ai-provider/dist/index.mjs
 var import_zod45 = require("zod");
 var import_partial_json = __toESM(require_dist(), 1);
 var import_zod46 = require("zod");

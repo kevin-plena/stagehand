@@ -9,7 +9,7 @@ export interface LoggerOptions {
 /**
  * Creates a configured Pino logger instance
  */
-export declare function createLogger(options?: LoggerOptions): import("pino/pino").Logger<never, boolean>;
+export declare function createLogger(options?: LoggerOptions): import("pino").Logger<never, boolean>;
 /**
  * StagehandLogger class that wraps Pino for our specific needs
  */
